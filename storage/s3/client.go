@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -232,6 +233,35 @@ func (c *S3Client) AbortMultipartUpload(ctx context.Context, key, uploadID strin
 	})
 	if err != nil {
 		return fmt.Errorf("s3.AbortMultipartUpload: %w", err)
+	}
+	return nil
+}
+
+// ObjectExists reports whether key exists in the bucket.
+func (c *S3Client) ObjectExists(ctx context.Context, key string) (bool, error) {
+	_, err := c.client.HeadObject(ctx, &awss3.HeadObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var nf *types.NotFound
+		if errors.As(err, &nf) {
+			return false, nil
+		}
+		return false, fmt.Errorf("s3.ObjectExists %q: %w", key, err)
+	}
+	return true, nil
+}
+
+// CopyObject copies srcKey to dstKey within the bucket.
+func (c *S3Client) CopyObject(ctx context.Context, srcKey, dstKey string) error {
+	_, err := c.client.CopyObject(ctx, &awss3.CopyObjectInput{
+		Bucket:     aws.String(c.bucket),
+		CopySource: aws.String(c.bucket + "/" + srcKey),
+		Key:        aws.String(dstKey),
+	})
+	if err != nil {
+		return fmt.Errorf("s3.CopyObject %q -> %q: %w", srcKey, dstKey, err)
 	}
 	return nil
 }

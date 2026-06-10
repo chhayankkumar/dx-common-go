@@ -16,6 +16,7 @@ const (
 	OpILike   Operator = "ILIKE"
 	OpIn      Operator = "IN"
 	OpNotIn   Operator = "NOT IN"
+	OpBetween Operator = "BETWEEN"
 	OpIsNull  Operator = "IS NULL"
 	OpNotNull Operator = "IS NOT NULL"
 	OpAnd     Operator = "AND"
@@ -101,6 +102,12 @@ func (b *ConditionBuilder) NotIn(column string, values any) *ConditionBuilder {
 	return b
 }
 
+// Between appends column BETWEEN low AND high (inclusive).
+func (b *ConditionBuilder) Between(column string, low, high any) *ConditionBuilder {
+	b.conditions = append(b.conditions, Condition{Column: column, Op: OpBetween, Value: []any{low, high}})
+	return b
+}
+
 // IsNull appends column IS NULL.
 func (b *ConditionBuilder) IsNull(column string) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpIsNull})
@@ -139,10 +146,27 @@ func conditionSQL(c Condition, args *[]any, idx *int) string {
 	case OpNotNull:
 		return fmt.Sprintf("%s IS NOT NULL", c.Column)
 	case OpIn, OpNotIn:
+		// Slices bind as a single Postgres array parameter, so membership is
+		// expressed with ANY/ALL — pgx cannot expand `IN ($1)` with a slice.
 		*args = append(*args, c.Value)
 		placeholder := fmt.Sprintf("$%d", *idx)
 		*idx++
-		return fmt.Sprintf("%s %s (%s)", c.Column, c.Op, placeholder)
+		if c.Op == OpNotIn {
+			return fmt.Sprintf("%s <> ALL(%s)", c.Column, placeholder)
+		}
+		return fmt.Sprintf("%s = ANY(%s)", c.Column, placeholder)
+	case OpBetween:
+		vals, ok := c.Value.([]any)
+		if !ok || len(vals) != 2 {
+			// Render an always-false predicate rather than panicking on bad input.
+			return "1=0 /* BETWEEN requires [low, high] */"
+		}
+		*args = append(*args, vals[0], vals[1])
+		low := fmt.Sprintf("$%d", *idx)
+		*idx++
+		high := fmt.Sprintf("$%d", *idx)
+		*idx++
+		return fmt.Sprintf("%s BETWEEN %s AND %s", c.Column, low, high)
 	case OpAnd, OpOr:
 		parts := make([]string, 0, len(c.Sub))
 		for _, sub := range c.Sub {
