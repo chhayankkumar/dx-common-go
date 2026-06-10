@@ -13,9 +13,15 @@ import (
 //	nil value     → skipped
 //	"" value      → skipped (empty query params)
 //
-// Keys are emitted in sorted order so generated SQL is deterministic
-// (stable for logging, caching and tests). Callers are responsible for
-// only passing trusted column names as keys.
+// Note: numeric/bool zero values (0, false) are NOT skipped — only nil and
+// the empty string are treated as "no filter". If a 0 or false should mean
+// "unset", use a pointer (*int, *bool) and omit it, or leave the key out of
+// the map entirely.
+//
+// Keys become column names in the generated SQL and are NOT escaped, so
+// callers MUST pass only trusted, literal column names — never raw user
+// input — as keys. Values are always bound as parameters and are safe.
+// Keys are emitted in sorted order so generated SQL is deterministic.
 func FromFilters(filters map[string]any) []Condition {
 	if len(filters) == 0 {
 		return nil

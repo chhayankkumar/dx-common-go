@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"sync"
 	"context"
 	"testing"
 	"time"
@@ -225,4 +226,24 @@ func TestMemoryCache_NoTTL(t *testing.T) {
 	if val != "value" {
 		t.Fatal("expected persistent value to exist")
 	}
+}
+
+func TestMemoryCache_ConcurrentAccess(t *testing.T) {
+	mc := NewMemoryCache()
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			key := "k" + string(rune('a'+n%5))
+			_ = mc.Set(ctx, key, TestData{Name: "x", Age: n}, time.Minute)
+			_, _ = mc.Get(ctx, key)
+			_, _ = mc.Exists(ctx, key)
+			if n%7 == 0 {
+				_ = mc.Delete(ctx, key)
+			}
+		}(i)
+	}
+	wg.Wait()
 }

@@ -3,6 +3,8 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -87,8 +89,10 @@ func (rc *RedisCache) Clear(ctx context.Context) error {
 	return rc.client.FlushDB(ctx).Err()
 }
 
-// MemoryCache is an in-memory cache for local development/testing
+// MemoryCache is an in-memory cache for local development/testing.
+// It is safe for concurrent use.
 type MemoryCache struct {
+	mu   sync.RWMutex
 	data map[string]cacheEntry
 	ttl  map[string]time.Time
 }
@@ -107,7 +111,9 @@ func NewMemoryCache() *MemoryCache {
 
 // Get retrieves a value from memory cache
 func (mc *MemoryCache) Get(ctx context.Context, key string) (string, error) {
-	// Check if expired
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	if expiry, ok := mc.ttl[key]; ok {
 		if time.Now().After(expiry) {
 			delete(mc.data, key)
@@ -144,9 +150,15 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value interface{}, t
 	if s, ok := value.(string); ok {
 		val = s
 	} else {
-		jsonBytes, _ := json.Marshal(value)
+		jsonBytes, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("memory cache: marshal value for %q: %w", key, err)
+		}
 		val = string(jsonBytes)
 	}
+
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 
 	mc.data[key] = cacheEntry{value: val}
 
@@ -161,6 +173,8 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value interface{}, t
 
 // Delete removes a key from memory cache
 func (mc *MemoryCache) Delete(ctx context.Context, key string) error {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 	delete(mc.data, key)
 	delete(mc.ttl, key)
 	return nil
@@ -168,7 +182,9 @@ func (mc *MemoryCache) Delete(ctx context.Context, key string) error {
 
 // Exists checks if a key exists in memory cache
 func (mc *MemoryCache) Exists(ctx context.Context, key string) (bool, error) {
-	// Check if expired
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	if expiry, ok := mc.ttl[key]; ok {
 		if time.Now().After(expiry) {
 			delete(mc.data, key)
@@ -183,6 +199,8 @@ func (mc *MemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 
 // Clear removes all keys from memory cache
 func (mc *MemoryCache) Clear(ctx context.Context) error {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 	mc.data = make(map[string]cacheEntry)
 	mc.ttl = make(map[string]time.Time)
 	return nil

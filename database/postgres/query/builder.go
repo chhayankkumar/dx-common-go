@@ -7,6 +7,13 @@ import (
 
 // SQLBuilder converts query model structs into parameterized SQL strings and
 // argument slices suitable for pgx.
+//
+// Security note: column names, table names, JOIN ON expressions and OrderBy
+// columns are interpolated verbatim — only the Values/Set/condition values
+// are bound as parameters. Callers MUST supply identifiers from trusted,
+// literal sources (constants or fixed allowlists), never raw user input.
+// User-provided sort keys, for example, must be mapped through an allowlist
+// to a known column before reaching OrderBy.Column.
 type SQLBuilder struct{}
 
 // New returns a fresh SQLBuilder.
