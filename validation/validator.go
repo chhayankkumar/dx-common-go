@@ -149,8 +149,9 @@ func (v *Validator) UUID(field string, value string) *Validator {
 		return v
 	}
 
-	// UUID v4 pattern
-	uuidPattern := `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
+	// RFC 4122/9562 pattern, any version — IDs from Keycloak, Postgres and
+	// external systems are not guaranteed to be v4.
+	uuidPattern := `^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 	if re, err := regexp.Compile(uuidPattern); err == nil {
 		if !re.MatchString(strings.ToLower(value)) {
 			v.addError(field, "must be a valid UUID")

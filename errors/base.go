@@ -12,6 +12,7 @@ type DxError interface {
 	HTTPStatus() int
 	URN() string
 	Details() []string
+	Message() string
 }
 
 // BaseDxError is the concrete implementation of DxError.
@@ -56,6 +57,9 @@ func (e *BaseDxError) Error() string {
 
 // Code returns the ErrorCode.
 func (e *BaseDxError) Code() ErrorCode { return e.code }
+
+// Message returns the human-readable message without the code prefix.
+func (e *BaseDxError) Message() string { return e.message }
 
 // HTTPStatus returns the HTTP status code associated with this error.
 func (e *BaseDxError) HTTPStatus() int {

@@ -152,6 +152,17 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 
 	if out != nil && len(respBody) > 0 {
+		// Successful responses use the DxResponse envelope; the payload lives
+		// under "results". Fall back to direct decoding for legacy bodies.
+		var envelope struct {
+			Results json.RawMessage `json:"results"`
+		}
+		if err := json.Unmarshal(respBody, &envelope); err == nil && len(envelope.Results) > 0 {
+			if err := json.Unmarshal(envelope.Results, out); err != nil {
+				return fmt.Errorf("fga client: decode results: %w", err)
+			}
+			return nil
+		}
 		if err := json.Unmarshal(respBody, out); err != nil {
 			return fmt.Errorf("fga client: decode response: %w", err)
 		}

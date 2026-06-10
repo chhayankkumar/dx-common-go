@@ -2,6 +2,8 @@ package rabbitmq
 
 import (
 	"fmt"
+
+	"go.uber.org/zap"
 )
 
 // Consume starts consuming messages from queue in a background goroutine.
@@ -24,13 +26,22 @@ func (c *Client) Consume(queue string, handler func([]byte) error) error {
 		return fmt.Errorf("rabbitmq.Consume: register consumer: %w", err)
 	}
 
+	logger := c.cfg.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	go func() {
 		for d := range deliveries {
 			if err := handler(d.Body); err != nil {
 				// Nack without requeue so poison messages don't loop forever.
-				_ = d.Nack(false, false)
-			} else {
-				_ = d.Ack(false)
+				if nerr := d.Nack(false, false); nerr != nil {
+					logger.Warn("rabbitmq: nack failed; delivery state unknown",
+						zap.String("queue", queue), zap.Error(nerr))
+				}
+			} else if aerr := d.Ack(false); aerr != nil {
+				logger.Warn("rabbitmq: ack failed; message may be redelivered",
+					zap.String("queue", queue), zap.Error(aerr))
 			}
 		}
 	}()

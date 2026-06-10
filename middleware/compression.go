@@ -71,19 +71,13 @@ func SelectiveCompression(contentTypesToCompress ...string) func(http.Handler) h
 			}
 
 			// Wrap response writer to capture content-type
-			wrapper := &responseWriterWrapper{ResponseWriter: w}
+			wrapper := &responseWriterWrapper{ResponseWriter: w, types: typesToCompress}
 
 			next.ServeHTTP(wrapper, r)
 
-			// Check content-type after handler
-			contentType := wrapper.Header().Get("Content-Type")
-			if !typesToCompress[contentType] && !strings.HasPrefix(contentType, "application/json") {
-				// Don't compress if content-type not in list
-				return
-			}
-
-			// If we get here, we should have compressed but didn't, so let client know
-			w.Header().Set("Content-Encoding", "gzip")
+			// Flush and close the gzip stream if one was started during Write;
+			// without this the final gzip frame is never emitted.
+			_ = wrapper.Close()
 		})
 	}
 }
@@ -93,6 +87,16 @@ type responseWriterWrapper struct {
 	http.ResponseWriter
 	written bool
 	gw      *gzip.Writer
+	types   map[string]bool
+}
+
+func (rww *responseWriterWrapper) shouldCompress(contentType string) bool {
+	for t := range rww.types {
+		if strings.Contains(contentType, t) {
+			return true
+		}
+	}
+	return false
 }
 
 func (rww *responseWriterWrapper) Write(b []byte) (int, error) {
@@ -101,13 +105,7 @@ func (rww *responseWriterWrapper) Write(b []byte) (int, error) {
 
 		// Check content-type
 		contentType := rww.Header().Get("Content-Type")
-		shouldCompress := false
-
-		if strings.Contains(contentType, "application/json") ||
-			strings.Contains(contentType, "text/") ||
-			strings.Contains(contentType, "javascript") {
-			shouldCompress = true
-		}
+		shouldCompress := rww.shouldCompress(contentType)
 
 		if shouldCompress {
 			rww.gw = gzip.NewWriter(rww.ResponseWriter)

@@ -140,7 +140,7 @@ func GetErrorDetail(err error) ErrorDetail {
 
 	if dxErr, ok := err.(DxError); ok {
 		detail.Code = string(dxErr.Code())
-		detail.Message = dxErr.Error()
+		detail.Message = dxErr.Message()
 		detail.Details = dxErr.Details()
 		detail.StatusCode = dxErr.HTTPStatus()
 	}

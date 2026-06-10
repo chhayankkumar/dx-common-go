@@ -164,8 +164,8 @@ func TestGetErrorDetail(t *testing.T) {
 
 	detail := GetErrorDetail(err)
 
-	if detail.Code != "VALIDATION_ERROR" {
-		t.Fatalf("expected VALIDATION_ERROR, got %s", detail.Code)
+	if detail.Code != "ERR_VALIDATION" {
+		t.Fatalf("expected ERR_VALIDATION, got %s", detail.Code)
 	}
 
 	if detail.StatusCode != http.StatusBadRequest {

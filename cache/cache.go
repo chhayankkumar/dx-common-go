@@ -234,7 +234,17 @@ func (ch *CacheHelper) GetJSONOrFetch(ctx context.Context, key string, dest inte
 		return err
 	}
 
-	return ch.cache.Set(ctx, key, result, ch.ttl)
+	// Populate dest with the freshly fetched value via a JSON round-trip so the
+	// caller sees the same representation a later cache hit would produce.
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, dest); err != nil {
+		return err
+	}
+
+	return ch.cache.Set(ctx, key, string(b), ch.ttl)
 }
 
 // CacheKey helper to create consistent cache keys

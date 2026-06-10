@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/datakaveri/dx-common-go/auth"
@@ -15,6 +16,11 @@ import (
 // injected into the context without any actual token validation.
 func Middleware(cfg Config) func(http.Handler) http.Handler {
 	if !cfg.Enabled {
+		// Refuse to run with auth disabled in production-like environments: the
+		// synthetic user below grants consumer+provider roles to every request.
+		if env := os.Getenv("DX_ENV"); strings.EqualFold(env, "production") || strings.EqualFold(env, "prod") {
+			panic("jwt.Middleware: jwt.enabled=false is not allowed when DX_ENV=" + env)
+		}
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mockUser := auth.DxUser{

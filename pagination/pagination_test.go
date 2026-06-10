@@ -17,7 +17,7 @@ func TestRequest_Validate_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestRequest_Validate_LargePage Size(t *testing.T) {
+func TestRequest_Validate_LargePageSize(t *testing.T) {
 	req := Request{Page: 1, PageSize: 200}
 	req.Validate()
 

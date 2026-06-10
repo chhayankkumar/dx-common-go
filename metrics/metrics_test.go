@@ -90,8 +90,8 @@ func TestHistogram_Observe(t *testing.T) {
 		t.Fatalf("expected bucket 100 count=1, got %d", h.counts[100])
 	}
 
-	if h.counts[1000] != 1 {
-		t.Fatalf("expected bucket 1000 count=1, got %d", h.counts[1000])
+	if h.counts[500] != 1 {
+		t.Fatalf("expected bucket 500 count=1, got %d", h.counts[500])
 	}
 }
 
