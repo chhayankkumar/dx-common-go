@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/datakaveri/dx-common-go/auth"
+	"github.com/datakaveri/dx-common-go/transport/headers"
 )
 
 // Client is a typed REST client for dx-authz-go.
@@ -136,6 +139,18 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	req.Header.Set("Accept", "application/json")
 	if c.cfg.ServiceToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.ServiceToken)
+	}
+	if c.cfg.SharedSecret != "" {
+		// HMAC service identity — lets the authz service require resolver
+		// auth on /v1/* without per-service tokens.
+		signed, err := headers.Sign(auth.DxUser{
+			ID:    "svc:" + c.cfg.ServiceName,
+			Roles: []string{"service"},
+		}, headers.Config{Secret: []byte(c.cfg.SharedSecret)})
+		if err != nil {
+			return fmt.Errorf("fga client: sign service identity: %w", err)
+		}
+		headers.Apply(req, signed)
 	}
 
 	resp, err := c.http.Do(req)
