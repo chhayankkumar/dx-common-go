@@ -30,6 +30,9 @@ func New(cfg Config) (*Client, error) {
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("fga.New: BaseURL is required")
 	}
+	if cfg.SharedSecret != "" && cfg.ServiceName == "" {
+		return nil, fmt.Errorf("fga.New: ServiceName is required when SharedSecret is set")
+	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 2 * time.Second
