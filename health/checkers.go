@@ -5,8 +5,34 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// PgxPoolChecker checks PostgreSQL health via a pgx connection pool (the
+// driver the CDPG Go services use, as opposed to database/sql).
+type PgxPoolChecker struct {
+	pool *pgxpool.Pool
+}
+
+// NewPgxPoolChecker creates a health checker backed by a pgxpool.Pool.
+func NewPgxPoolChecker(pool *pgxpool.Pool) *PgxPoolChecker {
+	return &PgxPoolChecker{pool: pool}
+}
+
+// Check verifies PostgreSQL connectivity.
+func (pc *PgxPoolChecker) Check(ctx context.Context) ServiceStatus {
+	start := time.Now()
+	if err := pc.pool.Ping(ctx); err != nil {
+		return ServiceStatus{
+			Name:     "database",
+			Status:   "unhealthy",
+			Message:  "failed to connect: " + err.Error(),
+			Duration: time.Since(start),
+		}
+	}
+	return ServiceStatus{Name: "database", Status: "healthy", Duration: time.Since(start)}
+}
 
 // PostgreSQLChecker checks PostgreSQL database health
 type PostgreSQLChecker struct {

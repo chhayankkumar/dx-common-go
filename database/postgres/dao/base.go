@@ -84,6 +84,13 @@ func (d *BaseDAO[T]) FindAll(ctx context.Context, conditions []query.Condition) 
 	return d.selectMany(ctx, sql, args)
 }
 
+// FindAllOrdered fetches all matching rows in the given order (no pagination).
+func (d *BaseDAO[T]) FindAllOrdered(ctx context.Context, conditions []query.Condition, orderBy []query.OrderBy) ([]T, error) {
+	q := query.SelectQuery{Table: d.TableName, Conditions: conditions, OrderBy: orderBy}
+	sql, args := d.builder.BuildSelect(q)
+	return d.selectMany(ctx, sql, args)
+}
+
 // FindPage fetches one page of rows together with the total match count
 // (count query + page query over the same conditions), the Go counterpart
 // of the Java paginated select.
