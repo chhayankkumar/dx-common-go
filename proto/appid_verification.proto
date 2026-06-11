@@ -70,9 +70,32 @@ message ResolveDelegationResponse {
   string           delegatee_sub    = 16;  // echoed back for audit
 }
 
+// ── GetItem ────────────────────────────────────────────────────────────────
+// Catalogue item lookup for external PAPs (e.g. dx-acl-go). Replaces the
+// Vert.x ItemService proxy the in-process Java ACL uses.
+message GetItemRequest {
+  string item_id = 1;  // catalogue item UUID
+  string user_id = 2;  // caller sub, for audit; may be empty
+}
+
+message GetItemResponse {
+  bool   found                = 1;
+  string error_code           = 2;  // NOT_FOUND | INTERNAL_ERROR; empty on success
+  string item_id              = 3;
+  string item_type            = 4;  // DATABANK | AIMODEL | APPS
+  string provider_user_id     = 5;  // owner of the item
+  string organization_id      = 6;  // may be empty for independent providers
+  string organization_name    = 7;
+  string resource_server_json = 8;  // JSON-encoded resourceServer array (incl. accessTypes)
+  string apd_url              = 9;  // APD that governs this item
+  string asset_name           = 10;
+  string short_description    = 11;
+}
+
 // ── Service ────────────────────────────────────────────────────────────────
 service AppIdVerificationService {
   rpc VerifyAppId          (VerifyAppIdRequest)          returns (VerifyAppIdResponse);
   rpc CheckItemAccess      (CheckItemAccessRequest)      returns (CheckItemAccessResponse);
   rpc ResolveDelegation    (ResolveDelegationRequest)    returns (ResolveDelegationResponse);
+  rpc GetItem              (GetItemRequest)              returns (GetItemResponse);
 }

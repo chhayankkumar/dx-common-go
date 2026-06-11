@@ -176,3 +176,23 @@ func cacheKey(appID, secret string) string {
 	sum := sha256.Sum256([]byte(appID + ":" + secret))
 	return hex.EncodeToString(sum[:])
 }
+
+// GetItem fetches catalogue item details from the controlplane — the gRPC
+// replacement for the Vert.x ItemService proxy used by the in-process Java
+// ACL. Returns the raw proto response; callers interpret found/error_code.
+func (c *Client) GetItem(ctx context.Context, itemID, userID string) (*appidpb.GetItemResponse, error) {
+	rpcCtx, cancel, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("appid.GetItem: service token: %w", err)
+	}
+	defer cancel()
+
+	resp, err := c.stub.GetItem(rpcCtx, &appidpb.GetItemRequest{
+		ItemId: itemID,
+		UserId: userID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("appid.GetItem: rpc: %w", err)
+	}
+	return resp, nil
+}

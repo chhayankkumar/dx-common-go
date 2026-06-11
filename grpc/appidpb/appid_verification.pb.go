@@ -581,6 +581,185 @@ func (x *ResolveDelegationResponse) GetDelegateeSub() string {
 	return ""
 }
 
+// ── GetItem ────────────────────────────────────────────────────────────────
+// Catalogue item lookup for external PAPs (e.g. dx-acl-go). Replaces the
+// Vert.x ItemService proxy the in-process Java ACL uses.
+type GetItemRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"` // catalogue item UUID
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // caller sub, for audit; may be empty
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetItemRequest) Reset() {
+	*x = GetItemRequest{}
+	mi := &file_appid_verification_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetItemRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetItemRequest) ProtoMessage() {}
+
+func (x *GetItemRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appid_verification_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetItemRequest.ProtoReflect.Descriptor instead.
+func (*GetItemRequest) Descriptor() ([]byte, []int) {
+	return file_appid_verification_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GetItemRequest) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *GetItemRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type GetItemResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Found              bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	ErrorCode          string                 `protobuf:"bytes,2,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"` // NOT_FOUND | INTERNAL_ERROR; empty on success
+	ItemId             string                 `protobuf:"bytes,3,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ItemType           string                 `protobuf:"bytes,4,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`                     // DATABANK | AIMODEL | APPS
+	ProviderUserId     string                 `protobuf:"bytes,5,opt,name=provider_user_id,json=providerUserId,proto3" json:"provider_user_id,omitempty"` // owner of the item
+	OrganizationId     string                 `protobuf:"bytes,6,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`   // may be empty for independent providers
+	OrganizationName   string                 `protobuf:"bytes,7,opt,name=organization_name,json=organizationName,proto3" json:"organization_name,omitempty"`
+	ResourceServerJson string                 `protobuf:"bytes,8,opt,name=resource_server_json,json=resourceServerJson,proto3" json:"resource_server_json,omitempty"` // JSON-encoded resourceServer array (incl. accessTypes)
+	ApdUrl             string                 `protobuf:"bytes,9,opt,name=apd_url,json=apdUrl,proto3" json:"apd_url,omitempty"`                                       // APD that governs this item
+	AssetName          string                 `protobuf:"bytes,10,opt,name=asset_name,json=assetName,proto3" json:"asset_name,omitempty"`
+	ShortDescription   string                 `protobuf:"bytes,11,opt,name=short_description,json=shortDescription,proto3" json:"short_description,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *GetItemResponse) Reset() {
+	*x = GetItemResponse{}
+	mi := &file_appid_verification_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetItemResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetItemResponse) ProtoMessage() {}
+
+func (x *GetItemResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_appid_verification_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetItemResponse.ProtoReflect.Descriptor instead.
+func (*GetItemResponse) Descriptor() ([]byte, []int) {
+	return file_appid_verification_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetItemResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *GetItemResponse) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetItemType() string {
+	if x != nil {
+		return x.ItemType
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetProviderUserId() string {
+	if x != nil {
+		return x.ProviderUserId
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetOrganizationName() string {
+	if x != nil {
+		return x.OrganizationName
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetResourceServerJson() string {
+	if x != nil {
+		return x.ResourceServerJson
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetApdUrl() string {
+	if x != nil {
+		return x.ApdUrl
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetAssetName() string {
+	if x != nil {
+		return x.AssetName
+	}
+	return ""
+}
+
+func (x *GetItemResponse) GetShortDescription() string {
+	if x != nil {
+		return x.ShortDescription
+	}
+	return ""
+}
+
 var File_appid_verification_proto protoreflect.FileDescriptor
 
 const file_appid_verification_proto_rawDesc = "" +
@@ -637,11 +816,30 @@ const file_appid_verification_proto_rawDesc = "" +
 	"familyName\x12\x14\n" +
 	"\x05email\x18\x0e \x01(\tR\x05email\x12'\n" +
 	"\x0faccount_enabled\x18\x0f \x01(\bR\x0eaccountEnabled\x12#\n" +
-	"\rdelegatee_sub\x18\x10 \x01(\tR\fdelegateeSub2\x82\x03\n" +
+	"\rdelegatee_sub\x18\x10 \x01(\tR\fdelegateeSub\"B\n" +
+	"\x0eGetItemRequest\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\"\x93\x03\n" +
+	"\x0fGetItemResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x02 \x01(\tR\terrorCode\x12\x17\n" +
+	"\aitem_id\x18\x03 \x01(\tR\x06itemId\x12\x1b\n" +
+	"\titem_type\x18\x04 \x01(\tR\bitemType\x12(\n" +
+	"\x10provider_user_id\x18\x05 \x01(\tR\x0eproviderUserId\x12'\n" +
+	"\x0forganization_id\x18\x06 \x01(\tR\x0eorganizationId\x12+\n" +
+	"\x11organization_name\x18\a \x01(\tR\x10organizationName\x120\n" +
+	"\x14resource_server_json\x18\b \x01(\tR\x12resourceServerJson\x12\x17\n" +
+	"\aapd_url\x18\t \x01(\tR\x06apdUrl\x12\x1d\n" +
+	"\n" +
+	"asset_name\x18\n" +
+	" \x01(\tR\tassetName\x12+\n" +
+	"\x11short_description\x18\v \x01(\tR\x10shortDescription2\xe4\x03\n" +
 	"\x18AppIdVerificationService\x12l\n" +
 	"\vVerifyAppId\x12-.org.cdpg.dx.auth.appid.v1.VerifyAppIdRequest\x1a..org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse\x12x\n" +
 	"\x0fCheckItemAccess\x121.org.cdpg.dx.auth.appid.v1.CheckItemAccessRequest\x1a2.org.cdpg.dx.auth.appid.v1.CheckItemAccessResponse\x12~\n" +
-	"\x11ResolveDelegation\x123.org.cdpg.dx.auth.appid.v1.ResolveDelegationRequest\x1a4.org.cdpg.dx.auth.appid.v1.ResolveDelegationResponseBf\n" +
+	"\x11ResolveDelegation\x123.org.cdpg.dx.auth.appid.v1.ResolveDelegationRequest\x1a4.org.cdpg.dx.auth.appid.v1.ResolveDelegationResponse\x12`\n" +
+	"\aGetItem\x12).org.cdpg.dx.auth.appid.v1.GetItemRequest\x1a*.org.cdpg.dx.auth.appid.v1.GetItemResponseBf\n" +
 	"\x19org.cdpg.dx.auth.appid.v1B\x16AppIdVerificationProtoP\x01Z/github.com/datakaveri/dx-common-go/grpc/appidpbb\x06proto3"
 
 var (
@@ -656,7 +854,7 @@ func file_appid_verification_proto_rawDescGZIP() []byte {
 	return file_appid_verification_proto_rawDescData
 }
 
-var file_appid_verification_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_appid_verification_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_appid_verification_proto_goTypes = []any{
 	(*VerifyAppIdRequest)(nil),        // 0: org.cdpg.dx.auth.appid.v1.VerifyAppIdRequest
 	(*VerifyAppIdResponse)(nil),       // 1: org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse
@@ -665,17 +863,21 @@ var file_appid_verification_proto_goTypes = []any{
 	(*CheckItemAccessResponse)(nil),   // 4: org.cdpg.dx.auth.appid.v1.CheckItemAccessResponse
 	(*ResolveDelegationRequest)(nil),  // 5: org.cdpg.dx.auth.appid.v1.ResolveDelegationRequest
 	(*ResolveDelegationResponse)(nil), // 6: org.cdpg.dx.auth.appid.v1.ResolveDelegationResponse
+	(*GetItemRequest)(nil),            // 7: org.cdpg.dx.auth.appid.v1.GetItemRequest
+	(*GetItemResponse)(nil),           // 8: org.cdpg.dx.auth.appid.v1.GetItemResponse
 }
 var file_appid_verification_proto_depIdxs = []int32{
 	2, // 0: org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse.principal:type_name -> org.cdpg.dx.auth.appid.v1.AppIdPrincipalProto
 	0, // 1: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.VerifyAppId:input_type -> org.cdpg.dx.auth.appid.v1.VerifyAppIdRequest
 	3, // 2: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.CheckItemAccess:input_type -> org.cdpg.dx.auth.appid.v1.CheckItemAccessRequest
 	5, // 3: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.ResolveDelegation:input_type -> org.cdpg.dx.auth.appid.v1.ResolveDelegationRequest
-	1, // 4: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.VerifyAppId:output_type -> org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse
-	4, // 5: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.CheckItemAccess:output_type -> org.cdpg.dx.auth.appid.v1.CheckItemAccessResponse
-	6, // 6: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.ResolveDelegation:output_type -> org.cdpg.dx.auth.appid.v1.ResolveDelegationResponse
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
+	7, // 4: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.GetItem:input_type -> org.cdpg.dx.auth.appid.v1.GetItemRequest
+	1, // 5: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.VerifyAppId:output_type -> org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse
+	4, // 6: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.CheckItemAccess:output_type -> org.cdpg.dx.auth.appid.v1.CheckItemAccessResponse
+	6, // 7: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.ResolveDelegation:output_type -> org.cdpg.dx.auth.appid.v1.ResolveDelegationResponse
+	8, // 8: org.cdpg.dx.auth.appid.v1.AppIdVerificationService.GetItem:output_type -> org.cdpg.dx.auth.appid.v1.GetItemResponse
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -692,7 +894,7 @@ func file_appid_verification_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_appid_verification_proto_rawDesc), len(file_appid_verification_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -22,6 +22,7 @@ const (
 	AppIdVerificationService_VerifyAppId_FullMethodName       = "/org.cdpg.dx.auth.appid.v1.AppIdVerificationService/VerifyAppId"
 	AppIdVerificationService_CheckItemAccess_FullMethodName   = "/org.cdpg.dx.auth.appid.v1.AppIdVerificationService/CheckItemAccess"
 	AppIdVerificationService_ResolveDelegation_FullMethodName = "/org.cdpg.dx.auth.appid.v1.AppIdVerificationService/ResolveDelegation"
+	AppIdVerificationService_GetItem_FullMethodName           = "/org.cdpg.dx.auth.appid.v1.AppIdVerificationService/GetItem"
 )
 
 // AppIdVerificationServiceClient is the client API for AppIdVerificationService service.
@@ -33,6 +34,7 @@ type AppIdVerificationServiceClient interface {
 	VerifyAppId(ctx context.Context, in *VerifyAppIdRequest, opts ...grpc.CallOption) (*VerifyAppIdResponse, error)
 	CheckItemAccess(ctx context.Context, in *CheckItemAccessRequest, opts ...grpc.CallOption) (*CheckItemAccessResponse, error)
 	ResolveDelegation(ctx context.Context, in *ResolveDelegationRequest, opts ...grpc.CallOption) (*ResolveDelegationResponse, error)
+	GetItem(ctx context.Context, in *GetItemRequest, opts ...grpc.CallOption) (*GetItemResponse, error)
 }
 
 type appIdVerificationServiceClient struct {
@@ -73,6 +75,16 @@ func (c *appIdVerificationServiceClient) ResolveDelegation(ctx context.Context, 
 	return out, nil
 }
 
+func (c *appIdVerificationServiceClient) GetItem(ctx context.Context, in *GetItemRequest, opts ...grpc.CallOption) (*GetItemResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetItemResponse)
+	err := c.cc.Invoke(ctx, AppIdVerificationService_GetItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AppIdVerificationServiceServer is the server API for AppIdVerificationService service.
 // All implementations must embed UnimplementedAppIdVerificationServiceServer
 // for forward compatibility.
@@ -82,6 +94,7 @@ type AppIdVerificationServiceServer interface {
 	VerifyAppId(context.Context, *VerifyAppIdRequest) (*VerifyAppIdResponse, error)
 	CheckItemAccess(context.Context, *CheckItemAccessRequest) (*CheckItemAccessResponse, error)
 	ResolveDelegation(context.Context, *ResolveDelegationRequest) (*ResolveDelegationResponse, error)
+	GetItem(context.Context, *GetItemRequest) (*GetItemResponse, error)
 	mustEmbedUnimplementedAppIdVerificationServiceServer()
 }
 
@@ -100,6 +113,9 @@ func (UnimplementedAppIdVerificationServiceServer) CheckItemAccess(context.Conte
 }
 func (UnimplementedAppIdVerificationServiceServer) ResolveDelegation(context.Context, *ResolveDelegationRequest) (*ResolveDelegationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveDelegation not implemented")
+}
+func (UnimplementedAppIdVerificationServiceServer) GetItem(context.Context, *GetItemRequest) (*GetItemResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetItem not implemented")
 }
 func (UnimplementedAppIdVerificationServiceServer) mustEmbedUnimplementedAppIdVerificationServiceServer() {
 }
@@ -177,6 +193,24 @@ func _AppIdVerificationService_ResolveDelegation_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AppIdVerificationService_GetItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AppIdVerificationServiceServer).GetItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AppIdVerificationService_GetItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AppIdVerificationServiceServer).GetItem(ctx, req.(*GetItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AppIdVerificationService_ServiceDesc is the grpc.ServiceDesc for AppIdVerificationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -195,6 +229,10 @@ var AppIdVerificationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveDelegation",
 			Handler:    _AppIdVerificationService_ResolveDelegation_Handler,
+		},
+		{
+			MethodName: "GetItem",
+			Handler:    _AppIdVerificationService_GetItem_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
