@@ -30,10 +30,11 @@ var httpStatusMap = map[ErrorCode]int{
 	ErrNotFound:        http.StatusNotFound,
 	ErrConflict:        http.StatusConflict,
 	ErrInternal:        http.StatusInternalServerError,
-	ErrBadGateway:      http.StatusBadGateway,
-	ErrTooManyRequests: http.StatusTooManyRequests,
-	ErrExpired:         http.StatusUnauthorized,
-	ErrDatabase:        http.StatusInternalServerError,
+	ErrBadGateway:         http.StatusBadGateway,
+	ErrServiceUnavailable: http.StatusServiceUnavailable,
+	ErrTooManyRequests:    http.StatusTooManyRequests,
+	ErrExpired:            http.StatusUnauthorized,
+	ErrDatabase:           http.StatusInternalServerError,
 }
 
 // urnMap maps ErrorCode to IUDX/CDPG problem type URNs.
@@ -44,10 +45,11 @@ var urnMap = map[ErrorCode]string{
 	ErrNotFound:        "urn:dx:rs:ResourceNotFound",
 	ErrConflict:        "urn:dx:as:ResourceAlreadyExists",
 	ErrInternal:        "urn:dx:as:InternalServerError",
-	ErrBadGateway:      "urn:dx:as:BadGateway",
-	ErrTooManyRequests: "urn:dx:as:RateLimitExceeded",
-	ErrExpired:         "urn:dx:as:TokenExpired",
-	ErrDatabase:        "urn:dx:as:DatabaseError",
+	ErrBadGateway:         "urn:dx:as:BadGateway",
+	ErrServiceUnavailable: "urn:dx:as:ServiceUnavailable",
+	ErrTooManyRequests:    "urn:dx:as:RateLimitExceeded",
+	ErrExpired:            "urn:dx:as:TokenExpired",
+	ErrDatabase:           "urn:dx:as:DatabaseError",
 }
 
 // Error implements the error interface.

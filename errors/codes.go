@@ -10,8 +10,9 @@ const (
 	ErrNotFound        ErrorCode = "ERR_NOT_FOUND"
 	ErrConflict        ErrorCode = "ERR_CONFLICT"
 	ErrInternal        ErrorCode = "ERR_INTERNAL"
-	ErrBadGateway      ErrorCode = "ERR_BAD_GATEWAY"
-	ErrTooManyRequests ErrorCode = "ERR_TOO_MANY_REQUESTS"
-	ErrExpired         ErrorCode = "ERR_EXPIRED"
-	ErrDatabase        ErrorCode = "ERR_DATABASE"
+	ErrBadGateway         ErrorCode = "ERR_BAD_GATEWAY"
+	ErrServiceUnavailable ErrorCode = "ERR_SERVICE_UNAVAILABLE"
+	ErrTooManyRequests    ErrorCode = "ERR_TOO_MANY_REQUESTS"
+	ErrExpired            ErrorCode = "ERR_EXPIRED"
+	ErrDatabase           ErrorCode = "ERR_DATABASE"
 )
