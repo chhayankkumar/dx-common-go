@@ -1,5 +1,7 @@
 package response
 
+import "github.com/datakaveri/dx-common-go/pagination"
+
 // DxResponse is the standard JSON envelope for successful responses.
 // T is the type of the results payload.
 type DxResponse[T any] struct {
@@ -25,4 +27,15 @@ type PaginationInfo struct {
 	TotalHits int64 `json:"totalHits"`
 	Limit     int   `json:"limit"`
 	Offset    int   `json:"offset"`
+}
+
+// DxPagedResponse is the envelope variant that nests page-based pagination under
+// a "paginationInfo" object — the shape used by the control-plane API contract
+// (catalogue search/list, etc.).
+type DxPagedResponse[T any] struct {
+	Type           string          `json:"type"`
+	Title          string          `json:"title"`
+	Detail         string          `json:"detail,omitempty"`
+	Results        T               `json:"results,omitempty"`
+	PaginationInfo pagination.Info `json:"paginationInfo"`
 }

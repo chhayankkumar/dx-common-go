@@ -75,6 +75,40 @@ func ParsePaginationParams(pageStr string, pageSizeStr string) Request {
 	return req
 }
 
+// Info is the platform "paginationInfo" response object used by the control
+// plane API contract (and the Go services that replace its endpoints). Unlike
+// Response (snake_case, used internally), Info uses the exact camelCase field
+// names the API contract requires.
+type Info struct {
+	Page        int   `json:"page"`
+	Size        int   `json:"size"`
+	TotalCount  int64 `json:"totalCount"`
+	TotalPages  int   `json:"totalPages"`
+	HasNext     bool  `json:"hasNext"`
+	HasPrevious bool  `json:"hasPrevious"`
+}
+
+// NewInfo builds a paginationInfo object from a 1-based page, the page size, and
+// the total matching count. totalPages = ceil(totalCount/size) (0 when empty),
+// matching the control-plane contract.
+func NewInfo(page, size int, totalCount int64) Info {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 10
+	}
+	totalPages := int(math.Ceil(float64(totalCount) / float64(size)))
+	return Info{
+		Page:        page,
+		Size:        size,
+		TotalCount:  totalCount,
+		TotalPages:  totalPages,
+		HasNext:     page < totalPages,
+		HasPrevious: page > 1,
+	}
+}
+
 // PaginatedResult wraps data with pagination metadata
 type PaginatedResult[T any] struct {
 	Data       []T      `json:"data"`

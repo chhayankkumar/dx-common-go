@@ -54,6 +54,39 @@ func TestSearchRequestBody(t *testing.T) {
 	}
 }
 
+func TestGeoQuerySerialization(t *testing.T) {
+	cases := map[string]struct {
+		q    Query
+		want string
+	}{
+		"bbox": {
+			GeoBoundingBox("location", 13.1, 77.5, 12.9, 77.7),
+			`{"geo_bounding_box":{"location":{"bottom_right":{"lat":12.9,"lon":77.7},"top_left":{"lat":13.1,"lon":77.5}}}}`,
+		},
+		"distance": {
+			GeoDistance("location", 12.97, 77.59, "5km"),
+			`{"geo_distance":{"distance":"5km","location":{"lat":12.97,"lon":77.59}}}`,
+		},
+		"shape": {
+			GeoShape("geometry", "polygon", [][][]float64{{{77.5, 13.0}, {77.6, 13.0}, {77.6, 13.1}, {77.5, 13.0}}}, "intersects"),
+			`{"geo_shape":{"geometry":{"relation":"intersects","shape":{"coordinates":[[[77.5,13],[77.6,13],[77.6,13.1],[77.5,13]]],"type":"polygon"}}}}`,
+		},
+	}
+	for name, tc := range cases {
+		if got := mustJSON(t, tc.q); got != tc.want {
+			t.Fatalf("%s geo mismatch:\n got: %s\nwant: %s", name, got, tc.want)
+		}
+	}
+}
+
+func TestScriptScoreSerialization(t *testing.T) {
+	q := ScriptScore(MatchAll(), "cosineSimilarity(params.qv, '_word_vector') + 1.0", map[string]any{"qv": []float64{0.1, 0.2}})
+	want := `{"script_score":{"query":{"match_all":{}},"script":{"params":{"qv":[0.1,0.2]},"source":"cosineSimilarity(params.qv, '_word_vector') + 1.0"}}}`
+	if got := mustJSON(t, q); got != want {
+		t.Fatalf("script_score mismatch:\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestHitsAs(t *testing.T) {
 	type doc struct {
 		Name string `json:"name"`

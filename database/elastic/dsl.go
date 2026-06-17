@@ -141,6 +141,52 @@ func (b *BoolBuilder) Build() Query {
 	return Query{"bool": body}
 }
 
+// ── geo queries ─────────────────────────────────────────────────────────────
+
+// GeoBoundingBox matches geo_point documents inside the lat/lon box defined by
+// its top-left and bottom-right corners.
+func GeoBoundingBox(field string, topLeftLat, topLeftLon, bottomRightLat, bottomRightLon float64) Query {
+	return Query{"geo_bounding_box": map[string]any{
+		field: map[string]any{
+			"top_left":     map[string]any{"lat": topLeftLat, "lon": topLeftLon},
+			"bottom_right": map[string]any{"lat": bottomRightLat, "lon": bottomRightLon},
+		},
+	}}
+}
+
+// GeoDistance matches geo_point documents within distance (e.g. "5km") of the
+// center point.
+func GeoDistance(field string, lat, lon float64, distance string) Query {
+	return Query{"geo_distance": map[string]any{
+		"distance": distance,
+		field:      map[string]any{"lat": lat, "lon": lon},
+	}}
+}
+
+// GeoShape matches documents whose geo_shape field relates to the given GeoJSON
+// shape. shapeType is "point"/"polygon"/"linestring"/"envelope"; relation is
+// "within"/"intersects"/"contains"/"disjoint". coordinates is the GeoJSON
+// coordinates array for the shape type.
+func GeoShape(field, shapeType string, coordinates any, relation string) Query {
+	return Query{"geo_shape": map[string]any{
+		field: map[string]any{
+			"shape":    map[string]any{"type": shapeType, "coordinates": coordinates},
+			"relation": relation,
+		},
+	}}
+}
+
+// ScriptScore wraps inner with a custom Painless script score — e.g. cosine
+// similarity over a dense_vector for NLP/semantic search. params are exposed to
+// the script as `params`.
+func ScriptScore(inner Query, source string, params map[string]any) Query {
+	script := map[string]any{"source": source}
+	if len(params) > 0 {
+		script["params"] = params
+	}
+	return Query{"script_score": map[string]any{"query": inner, "script": script}}
+}
+
 // ── aggregations ────────────────────────────────────────────────────────────
 
 // Agg is one named aggregation fragment.
