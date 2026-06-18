@@ -62,6 +62,29 @@ func Wildcard(field, pattern string, caseInsensitive bool) Query {
 	return Query{"wildcard": map[string]any{field: body}}
 }
 
+// MatchBoolPrefix supports search-as-you-type (autocomplete). The last term
+// is treated as a prefix; earlier terms must match fully.
+func MatchBoolPrefix(field string, value any) Query {
+	return Query{"match_bool_prefix": map[string]any{field: map[string]any{"query": value}}}
+}
+
+// Nested queries documents inside a nested object. path is the nested field
+// name (e.g. "comments"); inner is the query to run inside that object.
+func Nested(path string, inner Query) Query {
+	return Query{"nested": map[string]any{"path": path, "query": inner}}
+}
+
+// Prefix matches documents where field starts with value. Typically used on
+// keyword fields for prefix autocompletion.
+func Prefix(field, value string) Query {
+	return Query{"prefix": map[string]any{field: map[string]any{"value": value}}}
+}
+
+// IDs matches documents by their _id.
+func IDs(ids ...string) Query {
+	return Query{"ids": map[string]any{"values": ids}}
+}
+
 // QueryString runs a Lucene query-string search, optionally limited to fields.
 func QueryString(queryStr string, fields ...string) Query {
 	body := map[string]any{"query": queryStr}
@@ -210,4 +233,24 @@ func MetricAgg(kind, field string) Agg {
 // DateHistogramAgg buckets documents by calendar interval ("day", "month", …).
 func DateHistogramAgg(field, calendarInterval string) Agg {
 	return Agg{"date_histogram": map[string]any{"field": field, "calendar_interval": calendarInterval}}
+}
+
+// FilterAgg wraps a query as a single-bucket aggregation — useful for counting
+// a specific subset.
+func FilterAgg(filter Query) Agg {
+	return Agg{"filter": filter}
+}
+
+// Sub nests child aggregations inside a bucket aggregation, returning the outer
+// agg for chaining. Example:
+//
+//	TermsAgg("tags", 20).Sub("avg_score", MetricAgg("avg", "score"))
+func (a Agg) Sub(name string, child Agg) Agg {
+	subs, ok := a["aggs"].(map[string]Agg)
+	if !ok {
+		subs = map[string]Agg{}
+	}
+	subs[name] = child
+	a["aggs"] = subs
+	return a
 }

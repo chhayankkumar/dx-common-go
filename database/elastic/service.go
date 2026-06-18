@@ -22,6 +22,12 @@ type SearchRequest struct {
 	SourceExcludes []string
 	// Aggregations by name.
 	Aggregations map[string]Agg
+	// TrackTotalHits forces ES to count all matches when true (default ES caps
+	// at 10 000). Set to true for exact counts on large result sets.
+	TrackTotalHits bool
+	// SizeZero signals "return zero hits" (aggs-only query). When true, Size is
+	// written as 0 to the request body even if the Size field is zero-valued.
+	SizeZero bool
 }
 
 // Hit is one search hit.
@@ -58,9 +64,14 @@ func (r SearchRequest) body() map[string]any {
 	}
 	if r.Size > 0 {
 		body["size"] = r.Size
+	} else if r.SizeZero {
+		body["size"] = 0
 	}
 	if r.From > 0 {
 		body["from"] = r.From
+	}
+	if r.TrackTotalHits {
+		body["track_total_hits"] = true
 	}
 	if len(r.Sort) > 0 {
 		body["sort"] = r.Sort
@@ -167,6 +178,46 @@ func (c *Client) UpdateDoc(ctx context.Context, index, id string, partial any) e
 		"/"+url.PathEscape(index)+"/_update/"+url.PathEscape(id),
 		map[string]any{"doc": partial})
 	return err
+}
+
+// ScriptUpdate runs a Painless script against a single document. Use for atomic
+// field increments, conditional updates, etc. that a partial-doc merge cannot do.
+func (c *Client) ScriptUpdate(ctx context.Context, index, id, script string, params map[string]any) error {
+	body := map[string]any{
+		"script": map[string]any{
+			"source": script,
+			"lang":   "painless",
+			"params": params,
+		},
+	}
+	_, err := c.do(ctx, http.MethodPost,
+		"/"+url.PathEscape(index)+"/_update/"+url.PathEscape(id), body)
+	return err
+}
+
+// UpdateByQuery runs a Painless script against all documents matching query.
+// Returns the number of updated documents.
+func (c *Client) UpdateByQuery(ctx context.Context, index string, query Query, script string, params map[string]any) (int64, error) {
+	body := map[string]any{
+		"query": query,
+		"script": map[string]any{
+			"source": script,
+			"lang":   "painless",
+			"params": params,
+		},
+	}
+	payload, err := c.do(ctx, http.MethodPost,
+		"/"+url.PathEscape(index)+"/_update_by_query", body)
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		Updated int64 `json:"updated"`
+	}
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return 0, fmt.Errorf("elastic: decode update_by_query response: %w", err)
+	}
+	return resp.Updated, nil
 }
 
 // DeleteDoc removes one document.

@@ -61,6 +61,16 @@ func WriteCreated[T any](w http.ResponseWriter, result T, title string) {
 	Write(w, http.StatusCreated, resp)
 }
 
+// WriteAccepted writes a 202 Accepted response for async operations.
+func WriteAccepted[T any](w http.ResponseWriter, result T, title string) {
+	resp := DxResponse[T]{
+		Type:    URNRsSuccess,
+		Title:   title,
+		Results: result,
+	}
+	Write(w, http.StatusAccepted, resp)
+}
+
 // WriteNoContent writes a 204 No Content response (empty body).
 func WriteNoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
