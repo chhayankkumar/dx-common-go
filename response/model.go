@@ -3,15 +3,18 @@ package response
 import "github.com/datakaveri/dx-common-go/pagination"
 
 // DxResponse is the standard JSON envelope for successful responses.
-// T is the type of the results payload.
+// T is the type of the result payload.
 type DxResponse[T any] struct {
-	Type      string  `json:"type"`
-	Title     string  `json:"title"`
-	Detail    string  `json:"detail,omitempty"`
-	Results   T       `json:"results,omitempty"`
-	TotalHits *int64  `json:"totalHits,omitempty"`
-	Limit     *int    `json:"limit,omitempty"`
-	Offset    *int    `json:"offset,omitempty"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+	Result T      `json:"result,omitempty"`
+	// Deprecated: use DxPagedResponse with WritePaginatedInfo instead.
+	TotalHits *int64 `json:"totalHits,omitempty"`
+	// Deprecated: use DxPagedResponse with WritePaginatedInfo instead.
+	Limit *int `json:"limit,omitempty"`
+	// Deprecated: use DxPagedResponse with WritePaginatedInfo instead.
+	Offset *int `json:"offset,omitempty"`
 }
 
 // DxErrorResponse is the standard JSON envelope for error responses.
@@ -36,6 +39,6 @@ type DxPagedResponse[T any] struct {
 	Type           string          `json:"type"`
 	Title          string          `json:"title"`
 	Detail         string          `json:"detail,omitempty"`
-	Results        T               `json:"results,omitempty"`
+	Result         T               `json:"result,omitempty"`
 	PaginationInfo pagination.Info `json:"paginationInfo"`
 }

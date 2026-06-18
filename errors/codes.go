@@ -15,4 +15,5 @@ const (
 	ErrTooManyRequests    ErrorCode = "ERR_TOO_MANY_REQUESTS"
 	ErrExpired            ErrorCode = "ERR_EXPIRED"
 	ErrDatabase           ErrorCode = "ERR_DATABASE"
+	ErrMethodNotAllowed   ErrorCode = "ERR_METHOD_NOT_ALLOWED"
 )

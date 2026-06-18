@@ -56,3 +56,8 @@ func NewServiceUnavailable(message string, details ...string) DxError {
 func NewTooManyRequests(message string, details ...string) DxError {
 	return &BaseDxError{code: ErrTooManyRequests, message: message, details: details}
 }
+
+// NewMethodNotAllowed creates a 405 Method Not Allowed error.
+func NewMethodNotAllowed(message string, details ...string) DxError {
+	return &BaseDxError{code: ErrMethodNotAllowed, message: message, details: details}
+}

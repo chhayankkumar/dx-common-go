@@ -11,6 +11,7 @@ type DxError interface {
 	Code() ErrorCode
 	HTTPStatus() int
 	URN() string
+	Title() string
 	Details() []string
 	Message() string
 }
@@ -35,21 +36,40 @@ var httpStatusMap = map[ErrorCode]int{
 	ErrTooManyRequests:    http.StatusTooManyRequests,
 	ErrExpired:            http.StatusUnauthorized,
 	ErrDatabase:           http.StatusInternalServerError,
+	ErrMethodNotAllowed:   http.StatusMethodNotAllowed,
 }
 
 // urnMap maps ErrorCode to IUDX/CDPG problem type URNs.
 var urnMap = map[ErrorCode]string{
-	ErrValidation:      "urn:dx:as:InvalidParamValue",
-	ErrUnauthorized:    "urn:dx:as:Unauthorized",
-	ErrForbidden:       "urn:dx:as:Forbidden",
-	ErrNotFound:        "urn:dx:rs:ResourceNotFound",
-	ErrConflict:        "urn:dx:as:ResourceAlreadyExists",
-	ErrInternal:        "urn:dx:as:InternalServerError",
+	ErrValidation:         "urn:dx:as:InvalidParamValue",
+	ErrUnauthorized:       "urn:dx:as:Unauthorized",
+	ErrForbidden:          "urn:dx:as:Forbidden",
+	ErrNotFound:           "urn:dx:rs:ResourceNotFound",
+	ErrConflict:           "urn:dx:as:ResourceAlreadyExists",
+	ErrInternal:           "urn:dx:as:InternalServerError",
 	ErrBadGateway:         "urn:dx:as:BadGateway",
 	ErrServiceUnavailable: "urn:dx:as:ServiceUnavailable",
 	ErrTooManyRequests:    "urn:dx:as:RateLimitExceeded",
 	ErrExpired:            "urn:dx:as:TokenExpired",
 	ErrDatabase:           "urn:dx:as:DatabaseError",
+	ErrMethodNotAllowed:   "urn:dx:as:MethodNotAllowed",
+}
+
+// titleMap maps ErrorCode to human-readable HTTP status titles matching the
+// Java controlplane convention (e.g., "Bad Request" instead of "ERR_VALIDATION").
+var titleMap = map[ErrorCode]string{
+	ErrValidation:         "Bad Request",
+	ErrUnauthorized:       "Not Authorized",
+	ErrForbidden:          "Forbidden",
+	ErrNotFound:           "Not Found",
+	ErrConflict:           "Conflict",
+	ErrInternal:           "Internal Server Error",
+	ErrBadGateway:         "Bad Gateway",
+	ErrServiceUnavailable: "Service Unavailable",
+	ErrTooManyRequests:    "Too Many Requests",
+	ErrExpired:            "Not Authorized",
+	ErrDatabase:           "Internal Server Error",
+	ErrMethodNotAllowed:   "Method Not Allowed",
 }
 
 // Error implements the error interface.
@@ -77,6 +97,15 @@ func (e *BaseDxError) URN() string {
 		return urn
 	}
 	return "urn:dx:as:InternalServerError"
+}
+
+// Title returns the human-readable HTTP status title for this error (e.g.,
+// "Bad Request", "Not Found"). Matches the Java controlplane convention.
+func (e *BaseDxError) Title() string {
+	if t, ok := titleMap[e.code]; ok {
+		return t
+	}
+	return "Internal Server Error"
 }
 
 // Details returns the slice of additional detail strings.
