@@ -22,6 +22,33 @@ func HandleError(w http.ResponseWriter, err error) {
 	WriteError(w, NewInternal("internal server error", err.Error()))
 }
 
+// WriteServerError is the standard handler-layer "translate or 500" helper.
+// If err is a DxError it is written as-is (its status, URN and detail are the
+// intended client response). Otherwise the error is treated as unexpected:
+// logUnexpected (when non-nil) is invoked so the caller can log it with its own
+// logger, and a generic 500 with no internal detail is written — unexpected
+// errors must not leak their message to clients.
+//
+// This centralises the branching that was previously copy-pasted as a local
+// writeErr/fail helper in every service's handler package. Callers keep a thin
+// one-line wrapper that supplies the log closure, e.g.:
+//
+//	func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
+//		errors.WriteServerError(w, err, func(e error) {
+//			h.logger.Error(op+" failed", zap.Error(e))
+//		})
+//	}
+func WriteServerError(w http.ResponseWriter, err error, logUnexpected func(error)) {
+	if dxErr, ok := err.(DxError); ok {
+		WriteError(w, dxErr)
+		return
+	}
+	if logUnexpected != nil {
+		logUnexpected(err)
+	}
+	WriteError(w, NewInternal("internal error"))
+}
+
 // HandleValidationError handles validation errors from custom validators
 func HandleValidationError(w http.ResponseWriter, details ...string) {
 	WriteError(w, NewValidation("validation failed", details...))

@@ -1,8 +1,10 @@
 package errors
 
 import (
+	stderrors "errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -210,5 +212,47 @@ func TestHandleError_NilError(t *testing.T) {
 	// Should not write anything
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for nil error, got %d", rec.Code)
+	}
+}
+
+func TestWriteServerError_DxErrorPassesThroughWithoutLogging(t *testing.T) {
+	rec := httptest.NewRecorder()
+	logged := false
+
+	WriteServerError(rec, NewNotFound("missing"), func(error) { logged = true })
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for DxError, got %d", rec.Code)
+	}
+	if logged {
+		t.Fatal("DxError must not be logged as unexpected")
+	}
+}
+
+func TestWriteServerError_UnexpectedLogsAndReturnsGeneric500(t *testing.T) {
+	rec := httptest.NewRecorder()
+	var got error
+
+	WriteServerError(rec, stderrors.New("boom: secret detail"), func(e error) { got = e })
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for unexpected error, got %d", rec.Code)
+	}
+	if got == nil || got.Error() != "boom: secret detail" {
+		t.Fatalf("logUnexpected should receive the original error, got %v", got)
+	}
+	// The internal detail must not leak into the response body.
+	if strings.Contains(rec.Body.String(), "secret detail") {
+		t.Fatalf("internal error detail leaked to client: %s", rec.Body.String())
+	}
+}
+
+func TestWriteServerError_NilLoggerIsSafe(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	WriteServerError(rec, stderrors.New("boom"), nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 }
