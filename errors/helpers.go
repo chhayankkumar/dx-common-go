@@ -1,24 +1,24 @@
 package errors
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 )
 
-// HandleError is a helper function that handles DxError responses
-// It writes appropriate status codes and JSON responses
+// HandleError is a helper function that handles DxError responses.
+// It writes appropriate status codes and JSON responses.
 func HandleError(w http.ResponseWriter, err error) {
 	if err == nil {
 		return
 	}
 
-	// If it's already a DxError, use WriteError
-	if dxErr, ok := err.(DxError); ok {
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
 		WriteError(w, dxErr)
 		return
 	}
 
-	// Convert generic error to Internal error
 	WriteError(w, NewInternal("internal server error", err.Error()))
 }
 
@@ -124,25 +124,28 @@ func HandleStatusCodeError(w http.ResponseWriter, statusCode int, message string
 	WriteError(w, dxErr)
 }
 
-// IsNotFoundError checks if an error is a not found error
+// IsNotFoundError checks if an error (or any wrapped cause) is a not-found error.
 func IsNotFoundError(err error) bool {
-	if dxErr, ok := err.(DxError); ok {
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
 		return dxErr.HTTPStatus() == http.StatusNotFound
 	}
 	return false
 }
 
-// IsValidationError checks if an error is a validation error
+// IsValidationError checks if an error (or any wrapped cause) is a validation error.
 func IsValidationError(err error) bool {
-	if dxErr, ok := err.(DxError); ok {
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
 		return dxErr.HTTPStatus() == http.StatusBadRequest
 	}
 	return false
 }
 
-// IsAuthorizationError checks if an error is an authorization error
+// IsAuthorizationError checks if an error (or any wrapped cause) is an authorization error.
 func IsAuthorizationError(err error) bool {
-	if dxErr, ok := err.(DxError); ok {
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
 		statusCode := dxErr.HTTPStatus()
 		return statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden
 	}
@@ -157,7 +160,7 @@ type ErrorDetail struct {
 	StatusCode int      `json:"status_code"`
 }
 
-// GetErrorDetail extracts error details for logging
+// GetErrorDetail extracts error details for logging.
 func GetErrorDetail(err error) ErrorDetail {
 	detail := ErrorDetail{
 		Code:       "INTERNAL_ERROR",
@@ -165,7 +168,8 @@ func GetErrorDetail(err error) ErrorDetail {
 		StatusCode: http.StatusInternalServerError,
 	}
 
-	if dxErr, ok := err.(DxError); ok {
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
 		detail.Code = string(dxErr.Code())
 		detail.Message = dxErr.Message()
 		detail.Details = dxErr.Details()

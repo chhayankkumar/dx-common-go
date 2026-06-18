@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+var _ StorageRepository = (*S3Client)(nil)
+
 // S3Client implements StorageRepository using the AWS SDK v2.
 type S3Client struct {
 	client  *awss3.Client

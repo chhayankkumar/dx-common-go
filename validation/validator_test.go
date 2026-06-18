@@ -65,7 +65,7 @@ func TestEmailValidation_Invalid(t *testing.T) {
 
 func TestUUIDValidation_Valid(t *testing.T) {
 	v := New()
-	v.UUID("id", "123e4567-e89b-12d3-a456-426614174000")
+	v.UUID("id", "123e4567-e89b-42d3-a456-426614174000")
 
 	if v.HasErrors() {
 		t.Fatalf("expected no errors, got %v", v.Errors())

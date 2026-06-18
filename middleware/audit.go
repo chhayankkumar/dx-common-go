@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -29,6 +30,8 @@ type AuditEmitter interface {
 	Emit(ctx context.Context, event AuditEvent) error
 }
 
+var _ AuditEmitter = (*LogAuditEmitter)(nil)
+
 // LogAuditEmitter is the default implementation; it writes events to a zap logger.
 type LogAuditEmitter struct {
 	Logger *zap.Logger
@@ -50,10 +53,61 @@ func (e *LogAuditEmitter) Emit(_ context.Context, event AuditEvent) error {
 	return nil
 }
 
+// AuditWorker manages background audit event emission with a bounded queue
+// and graceful shutdown. Create one per service and share it across routes.
+type AuditWorker struct {
+	emitter AuditEmitter
+	events  chan AuditEvent
+	wg      sync.WaitGroup
+}
+
+// NewAuditWorker creates a worker with the given queue capacity.
+// It starts a background goroutine that drains the queue. Call Stop to
+// flush pending events on shutdown.
+func NewAuditWorker(emitter AuditEmitter, queueSize int) *AuditWorker {
+	if queueSize <= 0 {
+		queueSize = 256
+	}
+	w := &AuditWorker{
+		emitter: emitter,
+		events:  make(chan AuditEvent, queueSize),
+	}
+	w.wg.Add(1)
+	go w.drain()
+	return w
+}
+
+func (w *AuditWorker) drain() {
+	defer w.wg.Done()
+	for event := range w.events {
+		_ = w.emitter.Emit(context.Background(), event)
+	}
+}
+
+// Send enqueues an event. If the queue is full, the event is dropped silently
+// to avoid blocking the HTTP response path.
+func (w *AuditWorker) Send(event AuditEvent) {
+	select {
+	case w.events <- event:
+	default:
+	}
+}
+
+// Stop closes the queue and blocks until all pending events have been emitted.
+func (w *AuditWorker) Stop() {
+	close(w.events)
+	w.wg.Wait()
+}
+
 // Audit returns a middleware that emits an AuditEvent for every request.
 // resource and action describe the business context (e.g. "dataset", "read").
-// resourceIDParam is the chi URL parameter name for the resource ID (may be empty).
 func Audit(emitter AuditEmitter, resource, action string) func(http.Handler) http.Handler {
+	return AuditWithWorker(NewAuditWorker(emitter, 256), resource, action)
+}
+
+// AuditWithWorker returns a middleware that uses a shared AuditWorker.
+// Prefer this over Audit when you need to call worker.Stop() on shutdown.
+func AuditWithWorker(worker *AuditWorker, resource, action string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
@@ -61,7 +115,7 @@ func Audit(emitter AuditEmitter, resource, action string) func(http.Handler) htt
 
 			user, _ := auth.UserFromCtx(r.Context())
 
-			event := AuditEvent{
+			worker.Send(AuditEvent{
 				RequestID:  RequestIDFromCtx(r.Context()),
 				UserID:     user.ID,
 				Action:     action,
@@ -70,12 +124,7 @@ func Audit(emitter AuditEmitter, resource, action string) func(http.Handler) htt
 				Path:       r.URL.Path,
 				StatusCode: rw.status,
 				Timestamp:  time.Now().UTC(),
-			}
-
-			// Emit asynchronously so audit latency does not affect the response.
-			go func() {
-				_ = emitter.Emit(context.Background(), event)
-			}()
+			})
 		})
 	}
 }

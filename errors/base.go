@@ -21,7 +21,11 @@ type BaseDxError struct {
 	code    ErrorCode
 	message string
 	details []string
+	cause   error
 }
+
+// Unwrap returns the underlying cause, enabling errors.Is/errors.As traversal.
+func (e *BaseDxError) Unwrap() error { return e.cause }
 
 // httpStatusMap maps ErrorCode to HTTP status codes.
 var httpStatusMap = map[ErrorCode]int{

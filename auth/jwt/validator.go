@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -59,7 +60,7 @@ func (v *Validator) Validate(tokenString string) (*DxClaims, error) {
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
 	if !token.Valid {
-		return nil, fmt.Errorf("token is not valid")
+		return nil, errors.New("token is not valid")
 	}
 	return claims, nil
 }

@@ -20,6 +20,11 @@ type Cache interface {
 	Clear(ctx context.Context) error
 }
 
+var (
+	_ Cache = (*RedisCache)(nil)
+	_ Cache = (*MemoryCache)(nil)
+)
+
 // RedisCache wraps a Redis client
 type RedisCache struct {
 	client *redis.Client
@@ -238,15 +243,13 @@ func (ch *CacheHelper) GetOrFetch(ctx context.Context, key string, fetch func() 
 	return result, nil
 }
 
-// GetJSONOrFetch gets JSON from cache or fetches and caches result
+// GetJSONOrFetch gets JSON from cache or fetches, caches, and unmarshals the result into dest.
 func (ch *CacheHelper) GetJSONOrFetch(ctx context.Context, key string, dest interface{}, fetch func() (interface{}, error)) error {
-	// Try cache first
 	err := ch.cache.GetJSON(ctx, key, dest)
 	if err == nil {
 		return nil
 	}
 
-	// Fetch and cache
 	result, err := fetch()
 	if err != nil {
 		return err

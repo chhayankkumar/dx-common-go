@@ -175,7 +175,7 @@ func TestGetErrorDetail(t *testing.T) {
 	}
 
 	if detail.Message != "validation failed" {
-		t.Fatalf("expected message, got %s", detail.Message)
+		t.Fatalf("expected 'validation failed', got %s", detail.Message)
 	}
 
 	if len(detail.Details) != 1 {
