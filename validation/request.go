@@ -12,9 +12,8 @@ import (
 func ValidateRequest[T any](r *http.Request, validatorFunc func(*T) *Validator) (T, dxerrors.DxError) {
 	var req T
 
-	// Parse JSON body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return req, dxerrors.NewValidation("invalid request body", err.Error())
+		return req, dxerrors.NewValidation("invalid request body")
 	}
 
 	// Validate
@@ -32,11 +31,11 @@ func ValidateRawRequest[T any](r *http.Request) (T, dxerrors.DxError) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return req, dxerrors.NewValidation("failed to read request body", err.Error())
+		return req, dxerrors.NewValidation("failed to read request body")
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return req, dxerrors.NewValidation("invalid request body", err.Error())
+		return req, dxerrors.NewValidation("invalid request body")
 	}
 
 	return req, nil

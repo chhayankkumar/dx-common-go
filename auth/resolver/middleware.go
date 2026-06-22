@@ -46,7 +46,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 					// A signature header was sent but failed verification.
 					// Do NOT fall through to JWT — that would let a caller
 					// smuggle a wrong identity past the signature check.
-					dxerrors.WriteError(w, dxerrors.NewUnauthorized("invalid subject signature: "+err.Error()))
+					dxerrors.WriteError(w, dxerrors.NewUnauthorized("invalid subject signature"))
 					return
 				}
 				ctx := auth.WithUser(r.Context(), user)

@@ -78,16 +78,19 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+// liveResponse is the typed response for the liveness probe.
+type liveResponse struct {
+	Status string `json:"status"`
 }
 
 // Live health check (basic liveness probe - just checks if service is running)
 func (h *Handler) Live(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "alive",
-	})
+	_ = json.NewEncoder(w).Encode(liveResponse{Status: "alive"})
 }
 
 // Ready health check (readiness probe - checks dependencies)
@@ -113,8 +116,14 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"ready":    ready,
-		"services": statuses,
+	_ = json.NewEncoder(w).Encode(readyResponse{
+		Ready:    ready,
+		Services: statuses,
 	})
+}
+
+// readyResponse is the typed response for the readiness probe.
+type readyResponse struct {
+	Ready    bool              `json:"ready"`
+	Services map[string]string `json:"services"`
 }

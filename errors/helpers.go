@@ -3,7 +3,9 @@ package errors
 import (
 	"errors"
 	"net/http"
-	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // HandleError is a helper function that handles DxError responses.
@@ -19,7 +21,7 @@ func HandleError(w http.ResponseWriter, err error) {
 		return
 	}
 
-	WriteError(w, NewInternal("internal server error", err.Error()))
+	WriteError(w, NewInternal("internal server error"))
 }
 
 // WriteServerError is the standard handler-layer "translate or 500" helper.
@@ -39,7 +41,8 @@ func HandleError(w http.ResponseWriter, err error) {
 //		})
 //	}
 func WriteServerError(w http.ResponseWriter, err error, logUnexpected func(error)) {
-	if dxErr, ok := err.(DxError); ok {
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
 		WriteError(w, dxErr)
 		return
 	}
@@ -69,31 +72,39 @@ func HandleNotFoundError(w http.ResponseWriter, resource string, id string) {
 	WriteError(w, NewNotFound(message))
 }
 
-// HandleDatabaseError handles database-specific errors
+// HandleDatabaseError handles database-specific errors using structured error
+// inspection (errors.Is / errors.As) instead of string matching.
 func HandleDatabaseError(w http.ResponseWriter, err error) {
 	if err == nil {
 		return
 	}
 
-	// Check for specific database error patterns
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "no rows") || strings.Contains(errMsg, "not found") {
+	if errors.Is(err, pgx.ErrNoRows) {
 		WriteError(w, NewNotFound("requested resource not found"))
 		return
 	}
 
-	if strings.Contains(errMsg, "unique constraint") {
-		WriteError(w, NewConflict("resource already exists"))
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505": // unique_violation
+			WriteError(w, NewConflict("resource already exists"))
+		case "23503": // foreign_key_violation
+			WriteError(w, NewConflict("invalid reference to related resource"))
+		default:
+			WriteError(w, NewDatabase("database operation failed"))
+		}
 		return
 	}
 
-	if strings.Contains(errMsg, "foreign key constraint") {
-		WriteError(w, NewConflict("invalid reference to related resource"))
+	// Check if it's already a DxError from a lower layer (e.g. dao.MapPgError).
+	var dxErr DxError
+	if errors.As(err, &dxErr) {
+		WriteError(w, dxErr)
 		return
 	}
 
-	// Generic database error
-	WriteError(w, NewDatabase("database operation failed", err.Error()))
+	WriteError(w, NewDatabase("database operation failed"))
 }
 
 // HandleStatusCodeError converts HTTP status codes to DxError

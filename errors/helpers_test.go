@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestHandleValidationError(t *testing.T) {
@@ -41,17 +44,17 @@ func TestHandleAuthorizationError(t *testing.T) {
 func TestHandleDatabaseError_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("no rows in result set"))
+	HandleDatabaseError(rec, pgx.ErrNoRows)
 
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for 'no rows' error, got %d", rec.Code)
+		t.Fatalf("expected 404 for pgx.ErrNoRows, got %d", rec.Code)
 	}
 }
 
 func TestHandleDatabaseError_UniqueConstraint(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("unique constraint violation"))
+	HandleDatabaseError(rec, &pgconn.PgError{Code: "23505"})
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for unique constraint, got %d", rec.Code)
@@ -61,17 +64,27 @@ func TestHandleDatabaseError_UniqueConstraint(t *testing.T) {
 func TestHandleDatabaseError_ForeignKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("foreign key constraint violation"))
+	HandleDatabaseError(rec, &pgconn.PgError{Code: "23503"})
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for foreign key constraint, got %d", rec.Code)
 	}
 }
 
+func TestHandleDatabaseError_DxErrorPassthrough(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	HandleDatabaseError(rec, NewNotFound("already mapped"))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for DxError passthrough, got %d", rec.Code)
+	}
+}
+
 func TestHandleDatabaseError_Generic(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("query failed"))
+	HandleDatabaseError(rec, stderrors.New("some unknown db error"))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 for generic database error, got %d", rec.Code)
