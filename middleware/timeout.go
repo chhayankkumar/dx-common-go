@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	dxerrors "github.com/datakaveri/dx-common-go/errors"
 )
 
 // Timeout returns a middleware that cancels the request context after duration.
@@ -30,7 +32,7 @@ func Timeout(duration time.Duration) func(http.Handler) http.Handler {
 			case <-ctx.Done():
 				// Timed out before the handler finished.
 				tw.timedOut = true
-				http.Error(w, "request timeout", http.StatusServiceUnavailable)
+				dxerrors.WriteError(w, dxerrors.NewServiceUnavailable("request timeout"))
 			}
 		})
 	}

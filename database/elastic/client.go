@@ -92,7 +92,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (json.Ra
 
 	res, err := c.es.Perform(req)
 	if err != nil {
-		return nil, dxerrors.NewBadGateway("elasticsearch unreachable: " + err.Error())
+		return nil, fmt.Errorf("elasticsearch unreachable: %w", err)
 	}
 	defer res.Body.Close()
 

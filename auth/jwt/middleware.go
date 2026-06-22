@@ -56,7 +56,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 
 			claims, err := validator.Validate(parts[1])
 			if err != nil {
-				dxerrors.WriteError(w, dxerrors.NewUnauthorized("invalid or expired token: "+err.Error()))
+				dxerrors.WriteError(w, dxerrors.NewUnauthorized("invalid or expired token"))
 				return
 			}
 

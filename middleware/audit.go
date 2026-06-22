@@ -80,7 +80,18 @@ func NewAuditWorker(emitter AuditEmitter, queueSize int) *AuditWorker {
 func (w *AuditWorker) drain() {
 	defer w.wg.Done()
 	for event := range w.events {
-		_ = w.emitter.Emit(context.Background(), event)
+		if err := w.emitter.Emit(context.Background(), event); err != nil {
+			w.logEmitError(event, err)
+		}
+	}
+}
+
+func (w *AuditWorker) logEmitError(event AuditEvent, err error) {
+	if le, ok := w.emitter.(*LogAuditEmitter); ok && le.Logger != nil {
+		le.Logger.Warn("audit emit failed",
+			zap.String("request_id", event.RequestID),
+			zap.Error(err),
+		)
 	}
 }
 

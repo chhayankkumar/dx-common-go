@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	dxerrors "github.com/datakaveri/dx-common-go/errors"
 )
 
 // swaggerUIHTML is a self-contained Swagger UI HTML page that loads the spec
@@ -50,7 +52,7 @@ func ServeUI(r chi.Router, loader *Loader, cfg Config) {
 	r.Get(fmt.Sprintf("%s/openapi.json", base), func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(loader.Doc()); err != nil {
-			http.Error(w, "failed to encode spec", http.StatusInternalServerError)
+			dxerrors.WriteError(w, dxerrors.NewInternal("failed to encode spec"))
 		}
 	})
 

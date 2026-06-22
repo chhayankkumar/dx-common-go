@@ -2,6 +2,7 @@ package dao
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -47,5 +48,5 @@ func MapPgError(err error) error {
 		}
 	}
 
-	return dxerrors.NewDatabase("database error: " + err.Error())
+	return fmt.Errorf("database error: %w", err)
 }

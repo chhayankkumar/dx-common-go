@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/datakaveri/dx-common-go/auth"
+	dxerrors "github.com/datakaveri/dx-common-go/errors"
 )
 
 // Header names — exported so callers can also strip/inspect them.
@@ -155,7 +156,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, err := Verify(r.Header, cfg)
 			if err != nil {
-				http.Error(w, "invalid subject headers: "+err.Error(), http.StatusUnauthorized)
+				dxerrors.WriteError(w, dxerrors.NewUnauthorized("invalid or missing subject headers"))
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), user)))
