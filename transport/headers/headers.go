@@ -76,6 +76,16 @@ func Sign(user auth.DxUser, cfg Config) (http.Header, error) {
 	if len(cfg.Secret) == 0 {
 		return nil, errors.New("headers.Sign: Secret is required")
 	}
+	// A blank subject id would authenticate an anonymous principal downstream
+	// (and could match records with an empty owner). Refuse to mint it.
+	if strings.TrimSpace(user.ID) == "" {
+		return nil, errors.New("headers.Sign: user ID is required")
+	}
+	// The canonical string is '|'-separated; a field containing '|' is rejected
+	// as defence-in-depth against any field-shifting ambiguity.
+	if containsSeparator(user.ID, user.Email, user.OrganisationID) || rolesContainSeparator(user.Roles) {
+		return nil, errors.New("headers.Sign: subject fields must not contain '|'")
+	}
 	now := time.Now().Unix()
 	rolesJoined := joinRoles(user.Roles)
 	canonical := canonicalString(user.ID, user.Email, rolesJoined, user.OrganisationID, now)
@@ -132,6 +142,10 @@ func Verify(h http.Header, cfg Config) (auth.DxUser, error) {
 	email := h.Get(HdrSubjectEmail)
 	roles := h.Get(HdrSubjectRoles)
 	org := h.Get(HdrSubjectOrgID)
+	// Even a validly-signed blank id must not authenticate a principal.
+	if strings.TrimSpace(id) == "" {
+		return auth.DxUser{}, fmt.Errorf("%w: empty subject id", ErrInvalidSignature)
+	}
 	canonical := canonicalString(id, email, roles, org, issuedAt)
 
 	if !verifyAgainst(cfg.Secret, canonical, sig) {
@@ -204,6 +218,24 @@ func verifyAgainst(key []byte, canonical, expected string) bool {
 	m := hmac.New(sha256.New, key)
 	m.Write([]byte(canonical))
 	return hmac.Equal(m.Sum(nil), got)
+}
+
+func containsSeparator(fields ...string) bool {
+	for _, f := range fields {
+		if strings.Contains(f, "|") {
+			return true
+		}
+	}
+	return false
+}
+
+func rolesContainSeparator(roles []string) bool {
+	for _, r := range roles {
+		if strings.ContainsAny(r, "|,") {
+			return true
+		}
+	}
+	return false
 }
 
 func makeUser(id, email, roles, org string) auth.DxUser {

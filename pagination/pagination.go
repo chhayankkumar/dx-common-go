@@ -6,12 +6,19 @@ import (
 )
 
 // Request represents pagination parameters from a request
+//
+// Deprecated: use request.PaginatedRequest (request.From(r).Build()) — the
+// canonical page/size + allowlist sort/filter parser. Response payloads should
+// carry pagination.Info (NewInfo), which remains the standard response shape.
 type Request struct {
 	Page     int `json:"page" form:"page"`
 	PageSize int `json:"page_size" form:"page_size"`
 }
 
 // Response represents pagination metadata in response
+//
+// Deprecated: use pagination.Info (the control-plane contract shape with
+// camelCase page/size/totalCount/totalPages/hasNext/hasPrevious).
 type Response struct {
 	Page       int `json:"page"`
 	PageSize   int `json:"page_size"`
