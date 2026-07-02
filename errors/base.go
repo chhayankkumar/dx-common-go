@@ -29,12 +29,12 @@ func (e *BaseDxError) Unwrap() error { return e.cause }
 
 // httpStatusMap maps ErrorCode to HTTP status codes.
 var httpStatusMap = map[ErrorCode]int{
-	ErrValidation:      http.StatusBadRequest,
-	ErrUnauthorized:    http.StatusUnauthorized,
-	ErrForbidden:       http.StatusForbidden,
-	ErrNotFound:        http.StatusNotFound,
-	ErrConflict:        http.StatusConflict,
-	ErrInternal:        http.StatusInternalServerError,
+	ErrValidation:         http.StatusBadRequest,
+	ErrUnauthorized:       http.StatusUnauthorized,
+	ErrForbidden:          http.StatusForbidden,
+	ErrNotFound:           http.StatusNotFound,
+	ErrConflict:           http.StatusConflict,
+	ErrInternal:           http.StatusInternalServerError,
 	ErrBadGateway:         http.StatusBadGateway,
 	ErrServiceUnavailable: http.StatusServiceUnavailable,
 	ErrTooManyRequests:    http.StatusTooManyRequests,

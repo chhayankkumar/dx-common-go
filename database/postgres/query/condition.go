@@ -25,11 +25,11 @@ const (
 
 // Condition represents one predicate in a WHERE clause.
 type Condition struct {
-	Column   string
-	Op       Operator
-	Value    any
+	Column string
+	Op     Operator
+	Value  any
 	// Sub holds nested conditions for AND / OR groupings.
-	Sub      []Condition
+	Sub []Condition
 }
 
 // ConditionBuilder provides a fluent API for constructing WHERE conditions.

@@ -4,12 +4,12 @@ package errors
 type ErrorCode string
 
 const (
-	ErrValidation      ErrorCode = "ERR_VALIDATION"
-	ErrUnauthorized    ErrorCode = "ERR_UNAUTHORIZED"
-	ErrForbidden       ErrorCode = "ERR_FORBIDDEN"
-	ErrNotFound        ErrorCode = "ERR_NOT_FOUND"
-	ErrConflict        ErrorCode = "ERR_CONFLICT"
-	ErrInternal        ErrorCode = "ERR_INTERNAL"
+	ErrValidation         ErrorCode = "ERR_VALIDATION"
+	ErrUnauthorized       ErrorCode = "ERR_UNAUTHORIZED"
+	ErrForbidden          ErrorCode = "ERR_FORBIDDEN"
+	ErrNotFound           ErrorCode = "ERR_NOT_FOUND"
+	ErrConflict           ErrorCode = "ERR_CONFLICT"
+	ErrInternal           ErrorCode = "ERR_INTERNAL"
 	ErrBadGateway         ErrorCode = "ERR_BAD_GATEWAY"
 	ErrServiceUnavailable ErrorCode = "ERR_SERVICE_UNAVAILABLE"
 	ErrTooManyRequests    ErrorCode = "ERR_TOO_MANY_REQUESTS"
