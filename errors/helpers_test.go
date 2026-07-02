@@ -66,8 +66,11 @@ func TestHandleDatabaseError_ForeignKey(t *testing.T) {
 
 	HandleDatabaseError(rec, &pgconn.PgError{Code: "23503"})
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 for foreign key constraint, got %d", rec.Code)
+	// 23503 maps to Validation (400) per the reconciled MapPostgresError —
+	// previously this path said Conflict (409) while dao.MapPgError said
+	// Validation; the dao mapping is now canonical for both.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for foreign key constraint, got %d", rec.Code)
 	}
 }
 
