@@ -41,8 +41,9 @@ type BaseDAO[T any] struct {
 	DB        Querier
 	TableName string
 	// IDColumn is the primary-key column used by FindByID/SoftDelete. Defaults to "id".
-	IDColumn string
-	builder  *query.SQLBuilder
+	IDColumn   string
+	builder    *query.SQLBuilder
+	softDelete *softDeleteCfg // optional; see WithSoftDelete in extensions.go
 }
 
 // NewBaseDAO creates a BaseDAO for the given table. db is usually a
@@ -63,7 +64,7 @@ func (d *BaseDAO[T]) WithTx(tx pgx.Tx) *BaseDAO[T] {
 func (d *BaseDAO[T]) FindByID(ctx context.Context, id string) (*T, error) {
 	q := query.SelectQuery{
 		Table:      d.TableName,
-		Conditions: query.NewConditionBuilder().Eq(d.IDColumn, id).Build(),
+		Conditions: d.scope(query.NewConditionBuilder().Eq(d.IDColumn, id).Build()),
 		Limit:      1,
 	}
 	sql, args := d.builder.BuildSelect(q)
@@ -72,21 +73,21 @@ func (d *BaseDAO[T]) FindByID(ctx context.Context, id string) (*T, error) {
 
 // FindOne fetches the first row matching conditions.
 func (d *BaseDAO[T]) FindOne(ctx context.Context, conditions []query.Condition) (*T, error) {
-	q := query.SelectQuery{Table: d.TableName, Conditions: conditions, Limit: 1}
+	q := query.SelectQuery{Table: d.TableName, Conditions: d.scope(conditions), Limit: 1}
 	sql, args := d.builder.BuildSelect(q)
 	return d.selectOne(ctx, sql, args)
 }
 
 // FindAll fetches all rows matching the provided conditions (empty means all).
 func (d *BaseDAO[T]) FindAll(ctx context.Context, conditions []query.Condition) ([]T, error) {
-	q := query.SelectQuery{Table: d.TableName, Conditions: conditions}
+	q := query.SelectQuery{Table: d.TableName, Conditions: d.scope(conditions)}
 	sql, args := d.builder.BuildSelect(q)
 	return d.selectMany(ctx, sql, args)
 }
 
 // FindAllOrdered fetches all matching rows in the given order (no pagination).
 func (d *BaseDAO[T]) FindAllOrdered(ctx context.Context, conditions []query.Condition, orderBy []query.OrderBy) ([]T, error) {
-	q := query.SelectQuery{Table: d.TableName, Conditions: conditions, OrderBy: orderBy}
+	q := query.SelectQuery{Table: d.TableName, Conditions: d.scope(conditions), OrderBy: orderBy}
 	sql, args := d.builder.BuildSelect(q)
 	return d.selectMany(ctx, sql, args)
 }
@@ -95,6 +96,7 @@ func (d *BaseDAO[T]) FindAllOrdered(ctx context.Context, conditions []query.Cond
 // (count query + page query over the same conditions), the Go counterpart
 // of the Java paginated select.
 func (d *BaseDAO[T]) FindPage(ctx context.Context, conditions []query.Condition, orderBy []query.OrderBy, limit, offset int) (*Page[T], error) {
+	conditions = d.scope(conditions)
 	if limit <= 0 {
 		limit = 10
 	}
@@ -132,7 +134,7 @@ func (d *BaseDAO[T]) Count(ctx context.Context, conditions []query.Condition) (i
 	q := query.SelectQuery{
 		Table:      d.TableName,
 		Columns:    []string{"COUNT(*) AS count"},
-		Conditions: conditions,
+		Conditions: d.scope(conditions),
 	}
 	sql, args := d.builder.BuildSelect(q)
 
