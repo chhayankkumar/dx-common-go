@@ -98,6 +98,8 @@ func MapPostgresError(err error) error {
 			return NewValidation("required field is null: " + pgErr.ColumnName)
 		case "23514": // check_violation
 			return NewValidation("check constraint violated: " + pgErr.ConstraintName)
+		case "40001": // serialization_failure
+			return NewDatabase("serialization failure, please retry")
 		case "40P01": // deadlock_detected
 			return NewDatabase("deadlock detected, please retry")
 		}

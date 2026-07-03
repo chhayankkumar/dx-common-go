@@ -154,7 +154,7 @@ func (d *BaseDAO[T]) FindAllOrdered(ctx context.Context, conditions []query.Cond
 // (count query + page query over the same conditions), the Go counterpart
 // of the Java paginated select.
 func (d *BaseDAO[T]) FindPage(ctx context.Context, conditions []query.Condition, orderBy []query.OrderBy, limit, offset int) (*Page[T], error) {
-	conditions = d.scope(conditions)
+	conditions = d.withSoftDeleteFilter(conditions)
 	if limit <= 0 {
 		limit = 10
 	}
