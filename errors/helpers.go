@@ -2,6 +2,7 @@ package errors
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -72,38 +73,50 @@ func HandleNotFoundError(w http.ResponseWriter, resource string, id string) {
 	WriteError(w, NewNotFound(message))
 }
 
-// HandleDatabaseError handles database-specific errors using structured error
-// inspection (errors.Is / errors.As) instead of string matching.
-func HandleDatabaseError(w http.ResponseWriter, err error) {
+// MapPostgresError is the single source of truth translating low-level
+// pgx/pgconn errors into DxErrors. dao.MapPgError delegates here, and
+// HandleDatabaseError writes its result — previously the two carried
+// independent switches that had drifted (this one missed 23502/23514/40P01
+// and mapped 23503 differently), so the same DB failure produced different
+// client-visible statuses depending on the calling path.
+// Safe to call with nil (returns nil); an unrecognized error is wrapped.
+func MapPostgresError(err error) error {
 	if err == nil {
-		return
+		return nil
 	}
-
 	if errors.Is(err, pgx.ErrNoRows) {
-		WriteError(w, NewNotFound("requested resource not found"))
-		return
+		return NewNotFound("resource not found")
 	}
-
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23505": // unique_violation
-			WriteError(w, NewConflict("resource already exists"))
+			return NewConflict("resource already exists: " + pgErr.Detail)
 		case "23503": // foreign_key_violation
-			WriteError(w, NewConflict("invalid reference to related resource"))
-		default:
-			WriteError(w, NewDatabase("database operation failed"))
+			return NewValidation("foreign key constraint violated: " + pgErr.Detail)
+		case "23502": // not_null_violation
+			return NewValidation("required field is null: " + pgErr.ColumnName)
+		case "23514": // check_violation
+			return NewValidation("check constraint violated: " + pgErr.ConstraintName)
+		case "40P01": // deadlock_detected
+			return NewDatabase("deadlock detected, please retry")
 		}
+	}
+	return fmt.Errorf("database error: %w", err)
+}
+
+// HandleDatabaseError translates a database error via MapPostgresError and
+// writes the resulting DxError response.
+func HandleDatabaseError(w http.ResponseWriter, err error) {
+	if err == nil {
 		return
 	}
-
-	// Check if it's already a DxError from a lower layer (e.g. dao.MapPgError).
+	mapped := MapPostgresError(err)
 	var dxErr DxError
-	if errors.As(err, &dxErr) {
+	if errors.As(mapped, &dxErr) {
 		WriteError(w, dxErr)
 		return
 	}
-
 	WriteError(w, NewDatabase("database operation failed"))
 }
 
