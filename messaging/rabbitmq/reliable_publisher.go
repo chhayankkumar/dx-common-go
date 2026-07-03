@@ -20,7 +20,13 @@ type PublisherConfig struct {
 	// exchange (queue-name routing) without declaring anything.
 	Exchange     string
 	ExchangeType string
-	Logger       *zap.Logger
+	// Confirms puts the channel in publisher-confirm mode: Publish blocks
+	// until the broker acks the message (or ctx expires), so a nil return
+	// means the broker HAS the message — required when a caller marks
+	// durable state on success (e.g. the outbox dispatcher's MarkSent).
+	// Without confirms, a nil return only means "written to the socket".
+	Confirms bool
+	Logger   *zap.Logger
 }
 
 // ReliablePublisher publishes to RabbitMQ with lazy reconnect and one
@@ -106,7 +112,24 @@ func (p *ReliablePublisher) publishOnce(ctx context.Context, exchange, routingKe
 	if ch == nil {
 		return amqp.ErrClosed
 	}
-	return ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub)
+	if !p.cfg.Confirms {
+		return ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub)
+	}
+
+	// Confirm mode: wait for the broker's ack before reporting success.
+	dc, err := ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, false, false, pub)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-dc.Done():
+		if !dc.Acked() {
+			return fmt.Errorf("rabbitmq publisher: broker nacked message (exchange=%q key=%q)", exchange, routingKey)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("rabbitmq publisher: confirm wait: %w", ctx.Err())
+	}
 }
 
 // dial atomically replaces the connection + channel and (re)declares the
@@ -120,6 +143,13 @@ func (p *ReliablePublisher) dial() error {
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("open channel: %w", err)
+	}
+	if p.cfg.Confirms {
+		if err := ch.Confirm(false); err != nil {
+			ch.Close()
+			conn.Close()
+			return fmt.Errorf("enable publisher confirms: %w", err)
+		}
 	}
 	if p.cfg.Exchange != "" {
 		kind := p.cfg.ExchangeType

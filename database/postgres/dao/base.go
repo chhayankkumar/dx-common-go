@@ -47,10 +47,18 @@ type BaseDAO[T any] struct {
 	builder  *query.SQLBuilder
 
 	// softDeleteColumn, when set via WithSoftDeleteFilter, is auto-excluded
-	// (column <> 'DELETED') from every Find*/Count call unless the DAO was
-	// obtained through Unscoped().
-	softDeleteColumn string
-	unscoped         bool
+	// (column <> deleted-sentinel) from every Find*/Count call unless the DAO
+	// was obtained through Unscoped(). The sentinel pair defaults to
+	// DELETED/ACTIVE and is overridable via WithSoftDeleteValues.
+	softDeleteColumn  string
+	softDeleteDeleted string
+	softDeleteActive  string
+	unscoped          bool
+
+	// auditCreatedBy/auditUpdatedBy, when set via WithAuditColumns, are
+	// auto-populated from the context actor (WithActor) on map-based writes.
+	auditCreatedBy string
+	auditUpdatedBy string
 }
 
 // Option configures a BaseDAO at construction time, for use with NewBaseDAOWith.
@@ -115,7 +123,7 @@ func (d *BaseDAO[T]) withSoftDeleteFilter(conditions []query.Condition) []query.
 	}
 	out := make([]query.Condition, 0, len(conditions)+1)
 	out = append(out, conditions...)
-	return append(out, query.Condition{Column: d.softDeleteColumn, Op: query.OpNotEq, Value: "DELETED"})
+	return append(out, query.Condition{Column: d.softDeleteColumn, Op: query.OpNotEq, Value: d.deletedValue()})
 }
 
 // FindByID fetches a single row by its primary-key column.
@@ -244,6 +252,7 @@ func (d *BaseDAO[T]) InsertIgnore(ctx context.Context, columns []string, values 
 // equivalent of the Java toNonEmptyFieldsMap flow) and returns the stored
 // row via RETURNING *.
 func (d *BaseDAO[T]) InsertMap(ctx context.Context, m map[string]any) (*T, error) {
+	m = d.auditInsert(ctx, m)
 	columns, values := splitMap(m)
 	q := query.InsertQuery{Table: d.TableName, Columns: columns, Values: values, Returning: []string{"*"}}
 	sql, args := d.builder.BuildInsert(q)
@@ -252,6 +261,7 @@ func (d *BaseDAO[T]) InsertMap(ctx context.Context, m map[string]any) (*T, error
 
 // Update applies SET assignments to all rows matching conditions.
 func (d *BaseDAO[T]) Update(ctx context.Context, set map[string]any, conditions []query.Condition) error {
+	set = d.auditUpdate(ctx, set)
 	q := query.UpdateQuery{Table: d.TableName, Set: set, Conditions: conditions}
 	sql, args := d.builder.BuildUpdate(q)
 
@@ -264,6 +274,7 @@ func (d *BaseDAO[T]) Update(ctx context.Context, set map[string]any, conditions 
 // UpdateReturning applies SET assignments and returns the first updated row.
 // Returns NotFound when no row matched.
 func (d *BaseDAO[T]) UpdateReturning(ctx context.Context, set map[string]any, conditions []query.Condition) (*T, error) {
+	set = d.auditUpdate(ctx, set)
 	q := query.UpdateQuery{Table: d.TableName, Set: set, Conditions: conditions, Returning: []string{"*"}}
 	sql, args := d.builder.BuildUpdate(q)
 	return d.selectOne(ctx, sql, args)
@@ -272,6 +283,8 @@ func (d *BaseDAO[T]) UpdateReturning(ctx context.Context, set map[string]any, co
 // Upsert inserts m, updating updateColumns on conflictColumn conflicts, and
 // returns the stored row.
 func (d *BaseDAO[T]) Upsert(ctx context.Context, m map[string]any, conflictColumn string, updateColumns []string) (*T, error) {
+	m = d.auditInsert(ctx, m)
+	updateColumns = d.auditUpdateColumns(updateColumns)
 	columns, values := splitMap(m)
 	q := query.UpsertQuery{
 		Table:          d.TableName,

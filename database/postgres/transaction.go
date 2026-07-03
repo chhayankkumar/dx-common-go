@@ -175,3 +175,48 @@ func WithAdvisoryLock(ctx context.Context, pool *pgxpool.Pool, key int64, fn fun
 
 	return fn()
 }
+
+// InRetryableTransaction is InTransaction plus WithRetryableTx's retry
+// policy: fn runs inside a context-propagated transaction (repositories
+// join it via TxFromContext), and the WHOLE transaction is retried from
+// scratch on serialization failure (40001) or deadlock (40P01) with
+// doubling backoff + jitter. fn must therefore be safe to re-run.
+//
+// When ctx already carries a transaction (nested call), fn simply joins it
+// and NO retry is attempted here — a broken outer transaction cannot be
+// salvaged from inside; the outermost owner retries.
+func InRetryableTransaction(ctx context.Context, pool *pgxpool.Pool, fn func(ctx context.Context, tx pgx.Tx) error, cfg ...RetryConfig) error {
+	if _, ok := TxFromContext(ctx); ok {
+		return InTransaction(ctx, pool, fn)
+	}
+
+	rc := RetryConfig{MaxAttempts: 3, BaseDelay: 20 * time.Millisecond}
+	if len(cfg) > 0 {
+		if cfg[0].MaxAttempts > 0 {
+			rc.MaxAttempts = cfg[0].MaxAttempts
+		}
+		if cfg[0].BaseDelay > 0 {
+			rc.BaseDelay = cfg[0].BaseDelay
+		}
+	}
+
+	var lastErr error
+	delay := rc.BaseDelay
+	for attempt := 1; attempt <= rc.MaxAttempts; attempt++ {
+		lastErr = InTransaction(ctx, pool, fn)
+		if lastErr == nil || !isRetryablePgError(lastErr) {
+			return lastErr
+		}
+		if attempt == rc.MaxAttempts {
+			break
+		}
+		jitter := time.Duration(rand.Int63n(int64(delay) + 1))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay + jitter):
+		}
+		delay *= 2
+	}
+	return fmt.Errorf("postgres.InRetryableTransaction: giving up after %d attempts: %w", rc.MaxAttempts, lastErr)
+}
