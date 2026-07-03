@@ -114,6 +114,31 @@ func TestInsertMany_BuildsMultiValuesStatement(t *testing.T) {
 	}
 }
 
+func TestInsertIgnore_BuildsOnConflictDoNothing(t *testing.T) {
+	q := &fakeQuerier{}
+	d := NewBaseDAO[widget](q, "widgets")
+
+	if _, err := d.InsertIgnore(context.Background(), []string{"id", "name"}, []any{"w1", "one"}, "id"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "INSERT INTO widgets (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING"
+	if q.lastSQL != want {
+		t.Fatalf("sql mismatch:\n got: %s\nwant: %s", q.lastSQL, want)
+	}
+}
+
+func TestInsertIgnore_ColumnValueMismatch(t *testing.T) {
+	q := &fakeQuerier{}
+	d := NewBaseDAO[widget](q, "widgets")
+
+	if _, err := d.InsertIgnore(context.Background(), []string{"id", "name"}, []any{"w1"}, "id"); err == nil {
+		t.Fatal("expected an error for mismatched columns/values, got nil")
+	}
+	if q.lastSQL != "" {
+		t.Fatalf("Exec should not have been called before validation failed, got SQL: %s", q.lastSQL)
+	}
+}
+
 func TestCopyFrom_UnsupportedQuerier(t *testing.T) {
 	q := &fakeQuerier{} // fakeQuerier does not implement the copier interface
 	d := NewBaseDAO[widget](q, "widgets")

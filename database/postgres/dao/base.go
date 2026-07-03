@@ -213,6 +213,32 @@ func (d *BaseDAO[T]) Insert(ctx context.Context, columns []string, values []any)
 	return nil
 }
 
+// InsertIgnore inserts a row, doing nothing if conflictColumn's value
+// already exists (INSERT ... ON CONFLICT (conflictColumn) DO NOTHING) — the
+// idempotent-insert pattern for a naturally-keyed row from an
+// at-least-once delivery source (e.g. a message envelope's own id as the
+// primary key: redelivery after a lost ack must not duplicate the row, and
+// there's nothing meaningful to update on the "conflict" since it's the
+// exact same record, not a real update). Returns inserted=true only when a
+// new row was actually written.
+func (d *BaseDAO[T]) InsertIgnore(ctx context.Context, columns []string, values []any, conflictColumn string) (inserted bool, err error) {
+	if len(columns) != len(values) {
+		return false, fmt.Errorf("dao.InsertIgnore: %d columns but %d values", len(columns), len(values))
+	}
+	placeholders := make([]string, len(values))
+	for i := range values {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) DO NOTHING",
+		d.TableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "), conflictColumn)
+
+	tag, err := d.DB.Exec(ctx, sql, values...)
+	if err != nil {
+		return false, MapPgError(err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // InsertMap inserts the non-nil fields of m (column → value, the Go
 // equivalent of the Java toNonEmptyFieldsMap flow) and returns the stored
 // row via RETURNING *.
