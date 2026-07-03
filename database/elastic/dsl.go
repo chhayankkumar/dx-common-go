@@ -132,10 +132,13 @@ type BoolBuilder struct {
 // Bool starts a bool query.
 func Bool() *BoolBuilder { return &BoolBuilder{} }
 
-func (b *BoolBuilder) Must(qs ...Query) *BoolBuilder    { b.must = append(b.must, qs...); return b }
-func (b *BoolBuilder) Should(qs ...Query) *BoolBuilder  { b.should = append(b.should, qs...); return b }
-func (b *BoolBuilder) MustNot(qs ...Query) *BoolBuilder { b.mustNot = append(b.mustNot, qs...); return b }
-func (b *BoolBuilder) Filter(qs ...Query) *BoolBuilder  { b.filter = append(b.filter, qs...); return b }
+func (b *BoolBuilder) Must(qs ...Query) *BoolBuilder   { b.must = append(b.must, qs...); return b }
+func (b *BoolBuilder) Should(qs ...Query) *BoolBuilder { b.should = append(b.should, qs...); return b }
+func (b *BoolBuilder) MustNot(qs ...Query) *BoolBuilder {
+	b.mustNot = append(b.mustNot, qs...)
+	return b
+}
+func (b *BoolBuilder) Filter(qs ...Query) *BoolBuilder { b.filter = append(b.filter, qs...); return b }
 
 // MinimumShouldMatch sets the minimum_should_match parameter (int or string).
 func (b *BoolBuilder) MinimumShouldMatch(v any) *BoolBuilder {

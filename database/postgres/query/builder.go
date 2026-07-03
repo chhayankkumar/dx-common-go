@@ -103,11 +103,14 @@ func (b *SQLBuilder) BuildUpdate(q UpdateQuery) (string, []any) {
 	var args []any
 	idx := 1
 
-	setParts := make([]string, 0, len(q.Set))
+	setParts := make([]string, 0, len(q.Set)+len(q.Increment))
 	for col, val := range q.Set {
 		setParts = append(setParts, fmt.Sprintf("%s = $%d", col, idx))
 		args = append(args, val)
 		idx++
+	}
+	for _, col := range q.Increment {
+		setParts = append(setParts, fmt.Sprintf("%s = %s + 1", col, col))
 	}
 
 	fmt.Fprintf(&sb, "UPDATE %s SET %s", q.Table, strings.Join(setParts, ", "))

@@ -28,6 +28,11 @@ type SearchRequest struct {
 	// SizeZero signals "return zero hits" (aggs-only query). When true, Size is
 	// written as 0 to the request body even if the Size field is zero-valued.
 	SizeZero bool
+	// SearchAfter enables deep pagination past the default 10 000
+	// max_result_window (DATABASE.md §8.4) — set it to the previous page's
+	// last hit's Sort values. Requires Sort to be set; search_after has no
+	// meaning without an explicit, deterministic sort order.
+	SearchAfter []any
 }
 
 // Hit is one search hit.
@@ -35,6 +40,9 @@ type Hit struct {
 	ID     string          `json:"_id"`
 	Score  float64         `json:"_score"`
 	Source json.RawMessage `json:"_source"`
+	// Sort carries the hit's sort values when the request set Sort — the
+	// cursor for the next SearchAfter page.
+	Sort []any `json:"sort,omitempty"`
 }
 
 // SearchResult carries hits, the total match count, and raw aggregations.
@@ -88,6 +96,9 @@ func (r SearchRequest) body() map[string]any {
 	}
 	if len(r.Aggregations) > 0 {
 		body["aggs"] = r.Aggregations
+	}
+	if len(r.SearchAfter) > 0 {
+		body["search_after"] = r.SearchAfter
 	}
 	return body
 }
@@ -280,6 +291,15 @@ func (c *Client) BulkIndex(ctx context.Context, index string, docs map[string]an
 
 // CreateIndex creates an index with the given settings/mappings body (may be nil).
 func (c *Client) CreateIndex(ctx context.Context, index string, body map[string]any) error {
+	if body == nil {
+		// A nil map[string]any, once boxed into do's `body any` parameter,
+		// is a non-nil interface holding a nil map — do's `body != nil`
+		// check does not catch it, so json.Marshal would send the literal
+		// 4 bytes "null" instead of an empty request body, which
+		// Elasticsearch rejects. Normalize to "{}" (a valid "no special
+		// settings/mappings" index-creation payload) before it reaches do.
+		body = map[string]any{}
+	}
 	_, err := c.do(ctx, http.MethodPut, "/"+url.PathEscape(index), body)
 	return err
 }

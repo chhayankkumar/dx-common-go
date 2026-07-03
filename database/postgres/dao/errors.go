@@ -16,8 +16,14 @@ const (
 	pgErrForeignKeyViolation = "23503"
 	pgErrNotNullViolation    = "23502"
 	pgErrCheckViolation      = "23514"
+	pgErrSerialization       = "40001"
 	pgErrDeadlock            = "40P01"
 )
+
+// ErrStaleVersion is returned by BaseDAO.UpdateVersioned when the row's
+// current version no longer matches the caller's expected value (either it
+// was concurrently modified, or it doesn't exist).
+var ErrStaleVersion = dxerrors.NewConflict("resource was modified by another update (stale version)")
 
 // MapPgError translates low-level pgx / pgconn errors to DxError types.
 // It is safe to call with a nil error (returns nil).
@@ -43,6 +49,8 @@ func MapPgError(err error) error {
 			return dxerrors.NewValidation("required field is null: " + pgErr.ColumnName)
 		case pgErrCheckViolation:
 			return dxerrors.NewValidation("check constraint violated: " + pgErr.ConstraintName)
+		case pgErrSerialization:
+			return dxerrors.NewDatabase("serialization failure, please retry")
 		case pgErrDeadlock:
 			return dxerrors.NewDatabase("deadlock detected, please retry")
 		}

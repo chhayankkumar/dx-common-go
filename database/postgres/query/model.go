@@ -22,8 +22,12 @@ type InsertQuery struct {
 
 // UpdateQuery describes an UPDATE statement.
 type UpdateQuery struct {
-	Table      string
-	Set        map[string]any
+	Table string
+	Set   map[string]any
+	// Increment lists columns to bump by 1 (col = col + 1) alongside Set —
+	// for counters and optimistic-locking version columns, which can't be
+	// expressed as a literal Set value.
+	Increment  []string
 	Conditions []Condition
 	Returning  []string
 }
