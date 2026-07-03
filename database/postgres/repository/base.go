@@ -149,3 +149,33 @@ func (b *Base[R]) InsertMany(ctx context.Context, columns []string, rows [][]any
 func (b *Base[R]) CopyFrom(ctx context.Context, columns []string, rows [][]any) (int64, error) {
 	return b.DAO(ctx).CopyFrom(ctx, columns, rows)
 }
+
+func (b *Base[R]) Insert(ctx context.Context, columns []string, values []any) error {
+	return b.DAO(ctx).Insert(ctx, columns, values)
+}
+
+func (b *Base[R]) InsertIgnore(ctx context.Context, columns []string, values []any, conflictColumn string) (bool, error) {
+	return b.DAO(ctx).InsertIgnore(ctx, columns, values, conflictColumn)
+}
+
+func (b *Base[R]) InsertReturning(ctx context.Context, columns []string, values []any, returning []string, dest ...any) error {
+	return b.DAO(ctx).InsertReturning(ctx, columns, values, returning, dest...)
+}
+
+func (b *Base[R]) FindAllOrdered(ctx context.Context, conditions []query.Condition, orderBy []query.OrderBy) ([]R, error) {
+	return b.DAO(ctx).FindAllOrdered(ctx, conditions, orderBy)
+}
+
+// Raw escape hatches (R2 rule) — tx-propagation-aware like everything else.
+
+func (b *Base[R]) Select(ctx context.Context, sql string, args ...any) ([]R, error) {
+	return b.DAO(ctx).Select(ctx, sql, args...)
+}
+
+func (b *Base[R]) SelectOne(ctx context.Context, sql string, args ...any) (*R, error) {
+	return b.DAO(ctx).SelectOne(ctx, sql, args...)
+}
+
+func (b *Base[R]) Exec(ctx context.Context, sql string, args ...any) (int64, error) {
+	return b.DAO(ctx).Exec(ctx, sql, args...)
+}
