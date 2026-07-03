@@ -33,6 +33,44 @@ type SearchRequest struct {
 	// last hit's Sort values. Requires Sort to be set; search_after has no
 	// meaning without an explicit, deterministic sort order.
 	SearchAfter []any
+	// Highlight requests highlighted fragments for matching fields; results
+	// arrive per hit in Hit.Highlight.
+	Highlight *Highlight
+}
+
+// Highlight describes a highlighting request. Zero values fall back to
+// Elasticsearch defaults (<em> tags, 100-char fragments, 5 fragments).
+type Highlight struct {
+	// Fields to highlight (required).
+	Fields []string
+	// PreTags/PostTags wrap each match, e.g. ["<mark>"] / ["</mark>"].
+	PreTags  []string
+	PostTags []string
+	// FragmentSize is the fragment length in characters.
+	FragmentSize int
+	// NumberOfFragments caps fragments per field; 0 keeps the ES default.
+	NumberOfFragments int
+}
+
+func (h *Highlight) body() map[string]any {
+	fields := make(map[string]any, len(h.Fields))
+	for _, f := range h.Fields {
+		fields[f] = map[string]any{}
+	}
+	body := map[string]any{"fields": fields}
+	if len(h.PreTags) > 0 {
+		body["pre_tags"] = h.PreTags
+	}
+	if len(h.PostTags) > 0 {
+		body["post_tags"] = h.PostTags
+	}
+	if h.FragmentSize > 0 {
+		body["fragment_size"] = h.FragmentSize
+	}
+	if h.NumberOfFragments > 0 {
+		body["number_of_fragments"] = h.NumberOfFragments
+	}
+	return body
 }
 
 // Hit is one search hit.
@@ -43,6 +81,9 @@ type Hit struct {
 	// Sort carries the hit's sort values when the request set Sort — the
 	// cursor for the next SearchAfter page.
 	Sort []any `json:"sort,omitempty"`
+	// Highlight carries highlighted fragments per field when the request
+	// set Highlight.
+	Highlight map[string][]string `json:"highlight,omitempty"`
 }
 
 // SearchResult carries hits, the total match count, and raw aggregations.
@@ -99,6 +140,9 @@ func (r SearchRequest) body() map[string]any {
 	}
 	if len(r.SearchAfter) > 0 {
 		body["search_after"] = r.SearchAfter
+	}
+	if r.Highlight != nil && len(r.Highlight.Fields) > 0 {
+		body["highlight"] = r.Highlight.body()
 	}
 	return body
 }
