@@ -10,10 +10,12 @@ import (
 // Publish delivers one outbox row to the broker. Returning an error is
 // interpreted as "the broker is likely unavailable" — the dispatcher stops
 // draining and waits for the next tick/Kick rather than hot-looping on the
-// same row. A row whose payload can never be published (e.g. it fails to
-// unmarshal) is the caller's concern, not the dispatcher's: Publish should
-// call Store.MarkSent itself and return nil to skip such a row, exactly as
-// it would for a successful publish.
+// same row, and does NOT mark the row sent. Returning nil marks the row
+// sent (the dispatcher calls Store.MarkSent itself right after a nil
+// return) — so a row whose payload can never be published (e.g. it fails to
+// unmarshal) should be logged loudly by the caller and then have Publish
+// return nil to skip it, exactly as for a successful publish; there is no
+// need to call Store.MarkSent from inside Publish as well.
 type Publish func(ctx context.Context, row Row) error
 
 // Dispatcher drains a Store to a broker via Publish. It ticks on an
