@@ -77,6 +77,23 @@ func TestFromTemporal(t *testing.T) {
 	}
 }
 
+func TestBuildUpdate_Increment(t *testing.T) {
+	sql, args := New().BuildUpdate(UpdateQuery{
+		Table:      "widgets",
+		Set:        map[string]any{"name": "new-name"},
+		Increment:  []string{"version"},
+		Conditions: NewConditionBuilder().Eq("id", "w1").Eq("version", int64(3)).Build(),
+		Returning:  []string{"*"},
+	})
+	want := "UPDATE widgets SET name = $1, version = version + 1 WHERE id = $2 AND version = $3 RETURNING *"
+	if sql != want {
+		t.Fatalf("sql mismatch:\n got: %s\nwant: %s", sql, want)
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %d: %v", len(args), args)
+	}
+}
+
 func TestBuildUpsert(t *testing.T) {
 	sql, args := New().BuildUpsert(UpsertQuery{
 		Table:          "kv",

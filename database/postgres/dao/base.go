@@ -9,8 +9,10 @@ package dao
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -41,15 +43,51 @@ type BaseDAO[T any] struct {
 	DB        Querier
 	TableName string
 	// IDColumn is the primary-key column used by FindByID/SoftDelete. Defaults to "id".
-	IDColumn   string
-	builder    *query.SQLBuilder
-	softDelete *softDeleteCfg // optional; see WithSoftDelete in extensions.go
+	IDColumn string
+	builder  *query.SQLBuilder
+
+	// softDeleteColumn, when set via WithSoftDeleteFilter, is auto-excluded
+	// (column <> 'DELETED') from every Find*/Count call unless the DAO was
+	// obtained through Unscoped().
+	softDeleteColumn string
+	unscoped         bool
+}
+
+// Option configures a BaseDAO at construction time, for use with NewBaseDAOWith.
+type Option[T any] func(*BaseDAO[T])
+
+// WithSoftDeleteFilter makes every Find*/Count call auto-exclude rows where
+// column = 'DELETED' (the same sentinel BaseDAO.SoftDelete writes), the Go
+// counterpart of a JPA/Hibernate @Where soft-delete filter. Opt-in — DAOs
+// constructed without this option see no behavior change. Use Unscoped() to
+// bypass the filter for one call chain (e.g. an admin "show deleted" view).
+func WithSoftDeleteFilter[T any](column string) Option[T] {
+	return func(d *BaseDAO[T]) { d.softDeleteColumn = column }
+}
+
+// WithIDColumn overrides the default "id" primary-key column used by
+// FindByID/SoftDelete — for tables whose key isn't literally named "id"
+// (e.g. request_id).
+func WithIDColumn[T any](column string) Option[T] {
+	return func(d *BaseDAO[T]) { d.IDColumn = column }
 }
 
 // NewBaseDAO creates a BaseDAO for the given table. db is usually a
 // *pgxpool.Pool; pass a pgx.Tx (or use WithTx) for transactional use.
 func NewBaseDAO[T any](db Querier, tableName string) *BaseDAO[T] {
 	return &BaseDAO[T]{DB: db, TableName: tableName, IDColumn: "id", builder: query.New()}
+}
+
+// NewBaseDAOWith is NewBaseDAO plus construction-time Options (WithIDColumn,
+// WithSoftDeleteFilter, …) — kept as a separate constructor rather than
+// widening NewBaseDAO's signature, so every existing two-argument call site
+// is untouched.
+func NewBaseDAOWith[T any](db Querier, tableName string, opts ...Option[T]) *BaseDAO[T] {
+	d := NewBaseDAO[T](db, tableName)
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
 }
 
 // WithTx returns a shallow copy of the DAO bound to the given transaction.
@@ -60,11 +98,31 @@ func (d *BaseDAO[T]) WithTx(tx pgx.Tx) *BaseDAO[T] {
 	return &clone
 }
 
+// Unscoped returns a shallow copy of the DAO with the soft-delete filter
+// suspended for calls made on it. The receiver is unaffected.
+func (d *BaseDAO[T]) Unscoped() *BaseDAO[T] {
+	clone := *d
+	clone.unscoped = true
+	return &clone
+}
+
+// withSoftDeleteFilter appends the soft-delete exclusion to conditions when
+// the DAO was constructed with WithSoftDeleteFilter and isn't Unscoped().
+// The input slice is never mutated in place.
+func (d *BaseDAO[T]) withSoftDeleteFilter(conditions []query.Condition) []query.Condition {
+	if d.softDeleteColumn == "" || d.unscoped {
+		return conditions
+	}
+	out := make([]query.Condition, 0, len(conditions)+1)
+	out = append(out, conditions...)
+	return append(out, query.Condition{Column: d.softDeleteColumn, Op: query.OpNotEq, Value: "DELETED"})
+}
+
 // FindByID fetches a single row by its primary-key column.
 func (d *BaseDAO[T]) FindByID(ctx context.Context, id string) (*T, error) {
 	q := query.SelectQuery{
 		Table:      d.TableName,
-		Conditions: d.scope(query.NewConditionBuilder().Eq(d.IDColumn, id).Build()),
+		Conditions: d.withSoftDeleteFilter(query.NewConditionBuilder().Eq(d.IDColumn, id).Build()),
 		Limit:      1,
 	}
 	sql, args := d.builder.BuildSelect(q)
@@ -73,21 +131,21 @@ func (d *BaseDAO[T]) FindByID(ctx context.Context, id string) (*T, error) {
 
 // FindOne fetches the first row matching conditions.
 func (d *BaseDAO[T]) FindOne(ctx context.Context, conditions []query.Condition) (*T, error) {
-	q := query.SelectQuery{Table: d.TableName, Conditions: d.scope(conditions), Limit: 1}
+	q := query.SelectQuery{Table: d.TableName, Conditions: d.withSoftDeleteFilter(conditions), Limit: 1}
 	sql, args := d.builder.BuildSelect(q)
 	return d.selectOne(ctx, sql, args)
 }
 
 // FindAll fetches all rows matching the provided conditions (empty means all).
 func (d *BaseDAO[T]) FindAll(ctx context.Context, conditions []query.Condition) ([]T, error) {
-	q := query.SelectQuery{Table: d.TableName, Conditions: d.scope(conditions)}
+	q := query.SelectQuery{Table: d.TableName, Conditions: d.withSoftDeleteFilter(conditions)}
 	sql, args := d.builder.BuildSelect(q)
 	return d.selectMany(ctx, sql, args)
 }
 
 // FindAllOrdered fetches all matching rows in the given order (no pagination).
 func (d *BaseDAO[T]) FindAllOrdered(ctx context.Context, conditions []query.Condition, orderBy []query.OrderBy) ([]T, error) {
-	q := query.SelectQuery{Table: d.TableName, Conditions: d.scope(conditions), OrderBy: orderBy}
+	q := query.SelectQuery{Table: d.TableName, Conditions: d.withSoftDeleteFilter(conditions), OrderBy: orderBy}
 	sql, args := d.builder.BuildSelect(q)
 	return d.selectMany(ctx, sql, args)
 }
@@ -113,7 +171,7 @@ func (d *BaseDAO[T]) FindPage(ctx context.Context, conditions []query.Condition,
 	if total > int64(offset) {
 		q := query.SelectQuery{
 			Table:      d.TableName,
-			Conditions: conditions,
+			Conditions: d.withSoftDeleteFilter(conditions),
 			OrderBy:    orderBy,
 			Limit:      limit,
 			Offset:     offset,
@@ -134,7 +192,7 @@ func (d *BaseDAO[T]) Count(ctx context.Context, conditions []query.Condition) (i
 	q := query.SelectQuery{
 		Table:      d.TableName,
 		Columns:    []string{"COUNT(*) AS count"},
-		Conditions: d.scope(conditions),
+		Conditions: d.withSoftDeleteFilter(conditions),
 	}
 	sql, args := d.builder.BuildSelect(q)
 
@@ -154,6 +212,32 @@ func (d *BaseDAO[T]) Insert(ctx context.Context, columns []string, values []any)
 		return MapPgError(err)
 	}
 	return nil
+}
+
+// InsertIgnore inserts a row, doing nothing if conflictColumn's value
+// already exists (INSERT ... ON CONFLICT (conflictColumn) DO NOTHING) — the
+// idempotent-insert pattern for a naturally-keyed row from an
+// at-least-once delivery source (e.g. a message envelope's own id as the
+// primary key: redelivery after a lost ack must not duplicate the row, and
+// there's nothing meaningful to update on the "conflict" since it's the
+// exact same record, not a real update). Returns inserted=true only when a
+// new row was actually written.
+func (d *BaseDAO[T]) InsertIgnore(ctx context.Context, columns []string, values []any, conflictColumn string) (inserted bool, err error) {
+	if len(columns) != len(values) {
+		return false, fmt.Errorf("dao.InsertIgnore: %d columns but %d values", len(columns), len(values))
+	}
+	placeholders := make([]string, len(values))
+	for i := range values {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) DO NOTHING",
+		d.TableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "), conflictColumn)
+
+	tag, err := d.DB.Exec(ctx, sql, values...)
+	if err != nil {
+		return false, MapPgError(err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // InsertMap inserts the non-nil fields of m (column → value, the Go
@@ -240,6 +324,103 @@ func (d *BaseDAO[T]) InsertReturning(ctx context.Context, columns []string, valu
 		return fmt.Errorf("InsertReturning: %w", MapPgError(err))
 	}
 	return nil
+}
+
+// copier is satisfied by *pgxpool.Pool and pgx.Tx (both support the binary
+// COPY protocol) but not by the minimal Querier interface, so CopyFrom
+// type-asserts for it rather than widening Querier for every implementer.
+type copier interface {
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
+}
+
+// CopyFrom bulk-inserts rows via PostgreSQL's binary COPY protocol — far
+// faster than row-by-row INSERT for large batches, at the cost of not
+// supporting RETURNING, ON CONFLICT, or triggers that only fire on INSERT.
+// The underlying connection (pool or tx) must support CopyFrom; a DAO bound
+// to a Querier that doesn't (e.g. a test double) returns an error.
+func (d *BaseDAO[T]) CopyFrom(ctx context.Context, columns []string, rows [][]any) (int64, error) {
+	cp, ok := d.DB.(copier)
+	if !ok {
+		return 0, fmt.Errorf("dao.CopyFrom: underlying connection does not support CopyFrom")
+	}
+	n, err := cp.CopyFrom(ctx, pgx.Identifier{d.TableName}, columns, pgx.CopyFromRows(rows))
+	if err != nil {
+		return 0, MapPgError(err)
+	}
+	return n, nil
+}
+
+// InsertMany inserts multiple rows in one multi-VALUES statement. Prefer
+// CopyFrom for large batches; use InsertMany when the table has an
+// INSERT-only trigger or the batch is small enough that COPY's setup cost
+// isn't worth it.
+func (d *BaseDAO[T]) InsertMany(ctx context.Context, columns []string, rows [][]any) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "INSERT INTO %s (%s) VALUES ", d.TableName, strings.Join(columns, ", "))
+	args := make([]any, 0, len(rows)*len(columns))
+	idx := 1
+	for i, row := range rows {
+		if len(row) != len(columns) {
+			return fmt.Errorf("dao.InsertMany: row %d has %d values, want %d", i, len(row), len(columns))
+		}
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteByte('(')
+		for j := range row {
+			if j > 0 {
+				sb.WriteByte(',')
+			}
+			fmt.Fprintf(&sb, "$%d", idx)
+			idx++
+		}
+		sb.WriteByte(')')
+		args = append(args, row...)
+	}
+
+	if _, err := d.DB.Exec(ctx, sb.String(), args...); err != nil {
+		return MapPgError(err)
+	}
+	return nil
+}
+
+// UpdateVersioned applies an optimistic-locking update: set is applied
+// together with versionCol = versionCol + 1, gated on
+// versionCol = expected. Zero rows affected — the row doesn't exist, or was
+// concurrently modified since the caller read expected — returns
+// ErrStaleVersion rather than the generic NotFound UpdateReturning would give.
+func (d *BaseDAO[T]) UpdateVersioned(ctx context.Context, set map[string]any, conditions []query.Condition, versionCol string, expected int64) (*T, error) {
+	guarded := make([]query.Condition, 0, len(conditions)+1)
+	guarded = append(guarded, conditions...)
+	guarded = append(guarded, query.Condition{Column: versionCol, Op: query.OpEq, Value: expected})
+
+	q := query.UpdateQuery{
+		Table:      d.TableName,
+		Set:        set,
+		Increment:  []string{versionCol},
+		Conditions: guarded,
+		Returning:  []string{"*"},
+	}
+	sql, args := d.builder.BuildUpdate(q)
+
+	rows, err := d.DB.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, MapPgError(err)
+	}
+	defer rows.Close()
+
+	result, err := pgx.CollectOneRow(rows, pgx.RowToStructByNameLax[T])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrStaleVersion
+		}
+		return nil, MapPgError(err)
+	}
+	return &result, nil
 }
 
 // Select is the raw-SQL escape hatch for queries the builder cannot express

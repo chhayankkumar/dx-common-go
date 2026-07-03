@@ -1,25 +1,3 @@
-// Package migrate runs versioned SQL migrations embedded in a service binary,
-// implementing the platform migration policy (DATABASE.md §7.2, plan Q7/W8):
-//
-//   - Tooling: golang-migrate, migrations embedded via embed.FS (iofs source)
-//     as paired NNNN_title.up.sql / NNNN_title.down.sql files, zero-padded
-//     sequential versions.
-//   - Mode gate: "none" while a service points at the shared legacy iudx_db
-//     and owns no tables there; "migrate" when it owns net-new tables on the
-//     shared DB or its own database. Legacy tables remain Flyway-owned — a
-//     service's migrations may only ever touch tables it owns.
-//   - Per-service version table: on the shared iudx_db every service MUST set
-//     TableName to its own history table (e.g. "schema_migrations_acl") so
-//     services never share migration state. On a dedicated DB the default
-//     "schema_migrations" is fine.
-//   - Failure semantics: golang-migrate marks the database dirty when a
-//     migration fails mid-way and refuses further runs until resolved. Run
-//     reports this loudly with the exact failed version and the recovery
-//     procedure, because the operator otherwise sees only a cryptic
-//     "Dirty database version N" error.
-//
-// Migrations run before the service opens its normal pool — call Run from
-// main() (or an init job) before NewPool.
 package migrate
 
 import (
@@ -28,109 +6,139 @@ import (
 	"fmt"
 	"io/fs"
 
-	gomigrate "github.com/golang-migrate/migrate/v4"
-	pgxmig "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4"
+	pgxdriver "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx"
 	"go.uber.org/zap"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver used below
 )
 
-// Modes for Config.Mode.
+// Mode values for Config.Mode.
 const (
-	// ModeNone runs no DDL at all — for services on the shared legacy DB that
-	// own no tables (Flyway owns everything they touch).
+	// ModeNone is a no-op. Use it while a service's tables are still
+	// Flyway-owned (the legacy-baseline interim state) — see doc.go.
 	ModeNone = "none"
-	// ModeMigrate applies pending versioned migrations (the default).
+	// ModeMigrate runs every pending migration up to the latest version.
 	ModeMigrate = "migrate"
 )
 
-// DefaultTable is the golang-migrate default history table, used when a
-// service owns its whole database.
-const DefaultTable = "schema_migrations"
-
-// Config wires one service's migration run.
+// Config configures Run and Status. Mode is a plain string (compare against
+// ModeNone/ModeMigrate) rather than a distinct named type, so it binds
+// directly from a service's own config field (e.g. `SchemaMode string`)
+// without a conversion at the call site.
 type Config struct {
-	// Mode is "migrate" (default) or "none".
-	Mode string `mapstructure:"mode"`
-	// DSN is the Postgres connection string (same one the service pool uses).
-	DSN string `mapstructure:"-"`
-	// TableName is the migration-history table. MUST be service-scoped
-	// (e.g. "schema_migrations_acl") while several services share one
-	// database; defaults to DefaultTable.
-	TableName string `mapstructure:"table_name"`
+	// Mode is ModeNone or ModeMigrate.
+	Mode string
+	// DSN is the Postgres connection string.
+	DSN string
+	// TableName is this service's own migrations-history table — the
+	// x-migrations-table convention (schema_migrations_<service>) so
+	// multiple services can share one interim database without colliding
+	// version tracking. See doc.go.
+	TableName string
 }
 
-// Run applies pending migrations from the given fs (typically an embed.FS)
-// under dir (typically "migrations"). It is safe to call on every boot: an
-// up-to-date database is a no-op.
-func Run(cfg Config, migrations fs.FS, dir string, logger *zap.Logger) error {
-	switch cfg.Mode {
-	case ModeNone:
-		logger.Info("schema migrations disabled (mode=none) — schema owned externally")
+// DirtyStateError reports that the migrations table is marked dirty: a
+// previous migration failed partway through and golang-migrate refuses to
+// run anything further until it's resolved. Callers must treat this as
+// fatal — never start the service against a dirty schema.
+type DirtyStateError struct {
+	Version uint
+	Table   string
+}
+
+func (e *DirtyStateError) Error() string {
+	return fmt.Sprintf(
+		"migrate: migrations table %q is dirty at version %d — a prior migration failed partway "+
+			"through; fix the database by hand, then `migrate force %d` before restarting",
+		e.Table, e.Version, e.Version,
+	)
+}
+
+// Run applies every pending migration under dir (an embedded directory of
+// NNNN_title.up.sql / NNNN_title.down.sql pairs, see doc.go) to cfg.DSN,
+// tracked in cfg.TableName. cfg.Mode == ModeNone is a no-op, so callers can
+// invoke Run unconditionally from cmd/server/main.go and gate real
+// execution purely through config. A nil logger is fine (logging is skipped).
+func Run(cfg Config, fsys fs.FS, dir string, logger *zap.Logger) error {
+	if cfg.Mode != ModeMigrate {
 		return nil
-	case "", ModeMigrate:
-		// proceed
-	default:
-		return fmt.Errorf("migrate: unknown mode %q (want %q or %q)", cfg.Mode, ModeMigrate, ModeNone)
 	}
-	if cfg.DSN == "" {
-		return errors.New("migrate: DSN is required")
+	if logger == nil {
+		logger = zap.NewNop()
 	}
 
-	src, err := iofs.New(migrations, dir)
+	m, closeFn, err := open(cfg, fsys, dir)
 	if err != nil {
-		return fmt.Errorf("migrate: load embedded migrations: %w", err)
+		return err
+	}
+	defer closeFn()
+
+	if err := m.Up(); err != nil {
+		if errors.Is(err, migrate.ErrNoChange) {
+			logger.Info("no pending migrations", zap.String("table", cfg.TableName))
+			return nil
+		}
+		var dirty migrate.ErrDirty
+		if errors.As(err, &dirty) {
+			return &DirtyStateError{Version: uint(dirty.Version), Table: cfg.TableName}
+		}
+		return fmt.Errorf("migrate: up: %w", err)
+	}
+
+	version, _, verr := m.Version()
+	if verr == nil {
+		logger.Info("migrations applied", zap.String("table", cfg.TableName), zap.Uint("version", version))
+	}
+	return nil
+}
+
+// Status reports the current schema version and dirty flag without applying
+// anything, for a boot-time "refuse to start if the DB is ahead of this
+// binary" check. version=0, dirty=false, err=nil means no migration has run yet.
+func Status(cfg Config, fsys fs.FS, dir string) (version uint, dirty bool, err error) {
+	m, closeFn, err := open(cfg, fsys, dir)
+	if err != nil {
+		return 0, false, err
+	}
+	defer closeFn()
+
+	version, dirty, err = m.Version()
+	if errors.Is(err, migrate.ErrNilVersion) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("migrate: version: %w", err)
+	}
+	return version, dirty, nil
+}
+
+func open(cfg Config, fsys fs.FS, dir string) (*migrate.Migrate, func(), error) {
+	src, err := iofs.New(fsys, dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("migrate: open source %q: %w", dir, err)
 	}
 
 	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
-		return fmt.Errorf("migrate: open database: %w", err)
+		return nil, nil, fmt.Errorf("migrate: open db: %w", err)
 	}
-	// db is owned by the migrate instance from here; m.Close closes it.
 
-	table := cfg.TableName
-	if table == "" {
-		table = DefaultTable
-	}
-	drv, err := pgxmig.WithInstance(db, &pgxmig.Config{MigrationsTable: table})
+	dbDriver, err := pgxdriver.WithInstance(db, &pgxdriver.Config{MigrationsTable: cfg.TableName})
 	if err != nil {
-		_ = db.Close()
-		return fmt.Errorf("migrate: init pgx driver: %w", err)
+		db.Close()
+		return nil, nil, fmt.Errorf("migrate: init driver: %w", err)
 	}
 
-	m, err := gomigrate.NewWithInstance("iofs", src, "pgx5", drv)
+	m, err := migrate.NewWithInstance("iofs", src, "pgx", dbDriver)
 	if err != nil {
-		_ = db.Close()
-		return fmt.Errorf("migrate: init runner: %w", err)
+		db.Close()
+		return nil, nil, fmt.Errorf("migrate: new instance: %w", err)
 	}
-	defer func() {
-		srcErr, dbErr := m.Close()
-		if srcErr != nil || dbErr != nil {
-			logger.Warn("migrate: close", zap.NamedError("source", srcErr), zap.NamedError("db", dbErr))
-		}
-	}()
 
-	err = m.Up()
-	switch {
-	case err == nil:
-		v, _, _ := m.Version()
-		logger.Info("schema migrations applied", zap.Uint("version", v), zap.String("table", table))
-		return nil
-	case errors.Is(err, gomigrate.ErrNoChange):
-		v, _, _ := m.Version()
-		logger.Info("schema up to date", zap.Uint("version", v), zap.String("table", table))
-		return nil
-	default:
-		// Loud dirty-state reporting: without this the operator only sees
-		// "Dirty database version N" with no recovery path.
-		if v, dirty, verr := m.Version(); verr == nil && dirty {
-			logger.Error("MIGRATION FAILED MID-RUN — database is marked dirty and no further "+
-				"migrations will run until resolved. Recovery: inspect and manually fix/undo the "+
-				"partial changes of the failed version, then clear the dirty flag with "+
-				"`migrate -path <dir> -database <dsn>?x-migrations-table="+table+" force <previous-version>` "+
-				"(or delete the row from the history table), and redeploy.",
-				zap.Uint("failed_version", v), zap.String("table", table), zap.Error(err))
-		}
-		return fmt.Errorf("migrate: %w", err)
-	}
+	// dbDriver.Close (invoked via m.Close) closes db itself, so there is
+	// nothing left for the caller to close separately.
+	closeFn := func() { _, _ = m.Close() }
+	return m, closeFn, nil
 }

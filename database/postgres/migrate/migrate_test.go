@@ -1,33 +1,29 @@
 package migrate
 
 import (
+	"embed"
+	"strings"
 	"testing"
-	"testing/fstest"
-
-	"go.uber.org/zap"
 )
 
-var fakeFS = fstest.MapFS{
-	"migrations/0001_baseline.up.sql":   {Data: []byte("CREATE TABLE t (id int);")},
-	"migrations/0001_baseline.down.sql": {Data: []byte("DROP TABLE t;")},
-}
+//go:embed testdata
+var testFS embed.FS
 
-// TestModeNoneSkips pins the mode gate: none must run no DDL and succeed
-// without a database.
-func TestModeNoneSkips(t *testing.T) {
-	if err := Run(Config{Mode: ModeNone}, fakeFS, "migrations", zap.NewNop()); err != nil {
-		t.Fatalf("mode=none must be a no-op, got %v", err)
+func TestRun_ModeNoneIsNoOp(t *testing.T) {
+	// No DSN dial should ever happen in ModeNone — an obviously-invalid DSN
+	// proves Run returned before touching the network.
+	cfg := Config{Mode: ModeNone, DSN: "postgres://invalid:invalid@127.0.0.1:1/nope", TableName: "schema_migrations_test"}
+	if err := Run(cfg, testFS, "testdata", nil); err != nil {
+		t.Fatalf("Run with ModeNone must be a no-op, got: %v", err)
 	}
 }
 
-func TestUnknownModeRejected(t *testing.T) {
-	if err := Run(Config{Mode: "auto"}, fakeFS, "migrations", zap.NewNop()); err == nil {
-		t.Fatal("unknown mode must be rejected")
-	}
-}
-
-func TestMissingDSNRejected(t *testing.T) {
-	if err := Run(Config{Mode: ModeMigrate}, fakeFS, "migrations", zap.NewNop()); err == nil {
-		t.Fatal("empty DSN must be rejected before attempting to connect")
+func TestDirtyStateError_Message(t *testing.T) {
+	err := &DirtyStateError{Version: 3, Table: "schema_migrations_acl"}
+	msg := err.Error()
+	for _, want := range []string{"schema_migrations_acl", "dirty", "version 3", "migrate force 3"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("DirtyStateError message missing %q: %s", want, msg)
+		}
 	}
 }

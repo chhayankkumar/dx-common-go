@@ -39,6 +39,23 @@ type ConsumerConfig struct {
 	// Setup declares the topology (exchanges, queues, bindings) on every
 	// (re)connect, before consuming begins. Required.
 	Setup func(ch *amqp.Channel) error
+	// MaxAttempts caps how many times a message may be Requeue'd before the
+	// runner treats it as DeadLetter instead, breaking an infinite
+	// redelivery loop for a message that always fails. Zero means
+	// unlimited (the pre-existing behavior). The counter is process-local,
+	// keyed by the delivery's MessageId (messages without one are never
+	// capped) — it resets on reconnect/restart, since native AMQP
+	// Nack(requeue=true) gives no way to stamp an attempt count onto the
+	// redelivered message; a durable cross-restart counter needs a
+	// republish-based retry topology, which is a further step up in
+	// complexity this runner doesn't take.
+	MaxAttempts int
+	// Dedup, if set, is consulted before every Handler call (keyed by the
+	// delivery's MessageId) and marked after a successful Ack — absorbing
+	// redeliveries caused by a lost ack rather than reprocessing them.
+	// Deliveries without a MessageId are never deduped (Dedup.Seen("") is
+	// always false).
+	Dedup *Dedup
 }
 
 // ConsumerRunner owns the dial → declare → consume → ack loop with a reconnect
@@ -48,6 +65,11 @@ type ConsumerConfig struct {
 type ConsumerRunner struct {
 	cfg    ConsumerConfig
 	logger *zap.Logger
+
+	attemptsMu sync.Mutex
+	attempts   map[string]int
+
+	done chan struct{}
 }
 
 // NewConsumerRunner constructs a runner. No network IO until Run is called.
@@ -56,11 +78,15 @@ func NewConsumerRunner(cfg ConsumerConfig) *ConsumerRunner {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &ConsumerRunner{cfg: cfg, logger: logger}
+	return &ConsumerRunner{cfg: cfg, logger: logger, attempts: make(map[string]int), done: make(chan struct{})}
 }
 
-// Run blocks until ctx is cancelled, reconnecting transparently on any failure.
+// Run blocks until ctx is cancelled, reconnecting transparently on any
+// failure. Call Run at most once per ConsumerRunner instance — use Stop to
+// learn when a prior Run call has fully returned.
 func (r *ConsumerRunner) Run(ctx context.Context, handler Handler) {
+	defer close(r.done)
+
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 
@@ -82,6 +108,21 @@ func (r *ConsumerRunner) Run(ctx context.Context, handler Handler) {
 				backoff = maxBackoff
 			}
 		}
+	}
+}
+
+// Stop blocks until a prior Run call has fully returned, or until ctx is
+// done — whichever comes first. Stop does not itself cancel anything; the
+// caller must cancel the context it passed to Run. This exists so a caller
+// that just cancelled Run's context can know it's now safe to release
+// resources the handler depends on (a DB pool, for instance) rather than
+// racing Run's final in-flight handler call.
+func (r *ConsumerRunner) Stop(ctx context.Context) error {
+	select {
+	case <-r.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -136,11 +177,30 @@ func (r *ConsumerRunner) runOnce(ctx context.Context, handler Handler) error {
 }
 
 func (r *ConsumerRunner) dispatch(ctx context.Context, d Delivery, handler Handler) {
-	switch handler(ctx, d) {
+	if r.cfg.Dedup != nil && r.cfg.Dedup.Seen(d.MessageId) {
+		r.logger.Info("duplicate delivery, acking without reprocessing", zap.String("messageId", d.MessageId))
+		if err := d.Ack(false); err != nil {
+			r.logger.Warn("ack failed; message may be redelivered", zap.Error(err))
+		}
+		return
+	}
+
+	outcome := handler(ctx, d)
+	if outcome == Requeue && r.attemptExceeded(d.MessageId) {
+		r.logger.Warn("max attempts exceeded, dead-lettering instead of requeuing",
+			zap.String("messageId", d.MessageId), zap.Int("maxAttempts", r.cfg.MaxAttempts))
+		outcome = DeadLetter
+	}
+
+	switch outcome {
 	case Ack:
 		if err := d.Ack(false); err != nil {
 			r.logger.Warn("ack failed; message may be redelivered", zap.Error(err))
 		}
+		if r.cfg.Dedup != nil {
+			r.cfg.Dedup.Mark(d.MessageId)
+		}
+		r.forgetAttempts(d.MessageId)
 	case Requeue:
 		if err := d.Nack(false, true); err != nil {
 			r.logger.Warn("nack(requeue) failed; delivery state unknown", zap.Error(err))
@@ -149,7 +209,30 @@ func (r *ConsumerRunner) dispatch(ctx context.Context, d Delivery, handler Handl
 		if err := d.Nack(false, false); err != nil {
 			r.logger.Warn("nack(dead-letter) failed; delivery state unknown", zap.Error(err))
 		}
+		r.forgetAttempts(d.MessageId)
 	}
+}
+
+// attemptExceeded reports whether messageId has now exceeded MaxAttempts,
+// bumping its counter as a side effect. Always false when MaxAttempts is
+// unset (0) or messageId is empty (nothing stable to key on).
+func (r *ConsumerRunner) attemptExceeded(messageID string) bool {
+	if r.cfg.MaxAttempts <= 0 || messageID == "" {
+		return false
+	}
+	r.attemptsMu.Lock()
+	defer r.attemptsMu.Unlock()
+	r.attempts[messageID]++
+	return r.attempts[messageID] >= r.cfg.MaxAttempts
+}
+
+func (r *ConsumerRunner) forgetAttempts(messageID string) {
+	if messageID == "" {
+		return
+	}
+	r.attemptsMu.Lock()
+	defer r.attemptsMu.Unlock()
+	delete(r.attempts, messageID)
 }
 
 // Dedup is a fixed-capacity FIFO set of processed message/request IDs,
