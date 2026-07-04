@@ -26,6 +26,9 @@ var (
 )
 
 // RedisCache wraps a Redis client
+// Deprecated: use database/redis.NewCache (implements this same Cache interface
+// with key-prefix + default-TTL options) — this type will be removed after
+// fleet migration (FRAMEWORK proposal D4).
 type RedisCache struct {
 	client *redis.Client
 }
@@ -212,6 +215,8 @@ func (mc *MemoryCache) Clear(ctx context.Context) error {
 }
 
 // CacheHelper provides common caching patterns
+// Deprecated: use the generic cache.GetOrLoad (typed, singleflight stampede
+// protection) — removed after fleet migration (FRAMEWORK proposal D4).
 type CacheHelper struct {
 	cache Cache
 	ttl   time.Duration

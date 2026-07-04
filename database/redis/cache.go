@@ -81,6 +81,8 @@ func Increment(ctx context.Context, c *Client, key string) (int64, error) {
 // here; pair GetOrSet with a Mutex if that duplication is unacceptable for
 // a given loader (e.g. it has side effects, or is expensive enough that a
 // thundering herd matters).
+// Deprecated: use cache.GetOrLoad with redis.NewCache — adds singleflight
+// stampede protection (FRAMEWORK proposal D4).
 func GetOrSet[T any](ctx context.Context, c *Client, key string, ttl time.Duration, loader func() (T, error)) (T, error) {
 	var dest T
 	hit, err := GetJSON(ctx, c, key, &dest)

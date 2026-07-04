@@ -1,8 +1,8 @@
 package cache
 
 import (
-	"sync"
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
