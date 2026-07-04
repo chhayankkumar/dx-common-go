@@ -41,6 +41,40 @@ type widget struct {
 	Name string
 }
 
+// describedWidget implements TableDescriber — NewBaseDAOFromEntity should
+// infer its table/ID column with zero explicit arguments.
+type describedWidget struct {
+	WidgetID string
+	Name     string
+}
+
+func (describedWidget) TableName() string { return "described_widgets" }
+func (describedWidget) IDColumn() string  { return "widget_id" }
+
+func TestNewBaseDAOFromEntity_InfersTableAndIDColumn(t *testing.T) {
+	q := &fakeQuerier{}
+	d := NewBaseDAOFromEntity[describedWidget](q)
+
+	if d.TableName != "described_widgets" || d.IDColumn != "widget_id" {
+		t.Fatalf("got table=%q id=%q, want table=described_widgets id=widget_id", d.TableName, d.IDColumn)
+	}
+
+	_, _ = d.FindByID(context.Background(), "w-1")
+	want := "SELECT * FROM described_widgets WHERE widget_id = $1 LIMIT $2"
+	if q.lastSQL != want {
+		t.Fatalf("sql mismatch:\n got: %s\nwant: %s", q.lastSQL, want)
+	}
+}
+
+func TestNewBaseDAOFromEntity_PanicsWithoutTableDescriber(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for a type not implementing TableDescriber")
+		}
+	}()
+	_ = NewBaseDAOFromEntity[widget](&fakeQuerier{})
+}
+
 func TestWithSoftDeleteFilter_AppliedToFindAll(t *testing.T) {
 	q := &fakeQuerier{}
 	d := NewBaseDAOWith[widget](q, "widgets", WithSoftDeleteFilter[widget]("status"))

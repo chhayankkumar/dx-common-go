@@ -29,6 +29,48 @@ func TestBuildSelect_InAndBetween(t *testing.T) {
 	}
 }
 
+func TestBuildSelect_Joins(t *testing.T) {
+	sql, args := New().BuildSelect(SelectQuery{
+		Table:   "policy",
+		Columns: []string{"policy.*", "COALESCE(c.email_id,'') AS consumer_email"},
+		Joins: []Join{
+			{Type: "LEFT", Table: "user_table AS c", On: "policy.consumer_id = c._id"},
+			{Type: "LEFT", Table: "user_table AS o", On: "policy.owner_id = o._id"},
+		},
+		Conditions: NewConditionBuilder().Eq("policy._id", "id-1").Build(),
+	})
+
+	want := "SELECT policy.*, COALESCE(c.email_id,'') AS consumer_email FROM policy" +
+		" LEFT JOIN user_table AS c ON policy.consumer_id = c._id" +
+		" LEFT JOIN user_table AS o ON policy.owner_id = o._id" +
+		" WHERE policy._id = $1"
+	if sql != want {
+		t.Fatalf("sql mismatch:\n got: %s\nwant: %s", sql, want)
+	}
+	if len(args) != 1 || args[0] != "id-1" {
+		t.Fatalf("args = %v, want [id-1]", args)
+	}
+}
+
+func TestBuildSelect_GroupByHaving(t *testing.T) {
+	sql, args := New().BuildSelect(SelectQuery{
+		Table:      "policy",
+		Columns:    []string{"status", "COUNT(*) AS total"},
+		Conditions: NewConditionBuilder().Eq("item_organization_id", "org-1").Build(),
+		GroupBy:    []string{"status"},
+		Having:     []Condition{Gt("total", 5)},
+	})
+
+	want := "SELECT status, COUNT(*) AS total FROM policy WHERE item_organization_id = $1" +
+		" GROUP BY status HAVING total > $2"
+	if sql != want {
+		t.Fatalf("sql mismatch:\n got: %s\nwant: %s", sql, want)
+	}
+	if len(args) != 2 || args[0] != "org-1" || args[1] != 5 {
+		t.Fatalf("args = %v, want [org-1 5]", args)
+	}
+}
+
 func TestBuildSelect_NotIn(t *testing.T) {
 	sql, _ := New().BuildSelect(SelectQuery{
 		Table:      "t",

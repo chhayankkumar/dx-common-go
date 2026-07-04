@@ -110,6 +110,36 @@ func TestDispatcher_PublishFailureStopsDrainWithoutMarkingSent(t *testing.T) {
 	}
 }
 
+func TestDispatcher_Job_DrainsThroughSchedulerRunner(t *testing.T) {
+	rows := []Row{{ID: uuid.New(), Action: "create"}}
+	store := newMemStore(rows...)
+
+	var published int
+	var mu sync.Mutex
+	publish := func(_ context.Context, _ Row) error {
+		mu.Lock()
+		published++
+		mu.Unlock()
+		return nil
+	}
+
+	d := NewDispatcher(store, publish, nil, WithInterval(5*time.Millisecond))
+	job := d.Job("test-outbox-dispatch")
+	if job.Name != "test-outbox-dispatch" {
+		t.Fatalf("Job.Name = %q, want %q", job.Name, "test-outbox-dispatch")
+	}
+	if job.Every != 5*time.Millisecond {
+		t.Fatalf("Job.Every = %v, want the Dispatcher's configured interval", job.Every)
+	}
+
+	if err := job.Run(context.Background()); err != nil {
+		t.Fatalf("Job.Run returned error: %v", err)
+	}
+	if store.sentCount() != 1 {
+		t.Fatalf("expected 1 row marked sent via Job.Run, got %d", store.sentCount())
+	}
+}
+
 func TestDispatcher_KickTriggersImmediateDrain(t *testing.T) {
 	store := newMemStore(Row{ID: uuid.New(), Action: "create"})
 

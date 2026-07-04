@@ -25,27 +25,6 @@ func BuildWhere(conditions []Condition, startIdx int) (string, []any) {
 	return sql, args
 }
 
-// BuildOrderBy renders an ORDER BY clause (including the "ORDER BY" keyword)
-// from the supplied OrderBy slice, or "" when empty.
-//
-// Security: OrderBy.Column is emitted verbatim — supply only allowlist-mapped
-// column names (see request.PaginationRequestBuilder, which maps user sort keys
-// through an apiToDb allowlist before producing OrderBy values).
-func BuildOrderBy(orders []OrderBy) string {
-	if len(orders) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(orders))
-	for _, o := range orders {
-		dir := "ASC"
-		if o.Desc {
-			dir = "DESC"
-		}
-		parts = append(parts, o.Column+" "+dir)
-	}
-	return "ORDER BY " + strings.Join(parts, ", ")
-}
-
 // JoinAnd combines an existing WHERE fragment with additional rendered
 // conditions using AND, returning a single fragment. Either side may be empty.
 func JoinAnd(fragments ...string) string {

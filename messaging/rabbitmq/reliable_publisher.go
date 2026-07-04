@@ -174,6 +174,14 @@ func (p *ReliablePublisher) dial() error {
 	return nil
 }
 
+// IsConnected reports whether the publisher currently holds an open channel.
+// Used by health.RabbitMQChecker; does not perform network IO.
+func (p *ReliablePublisher) IsConnected() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ch != nil && !p.ch.IsClosed()
+}
+
 // Close releases the connection and channel.
 func (p *ReliablePublisher) Close() {
 	p.mu.Lock()

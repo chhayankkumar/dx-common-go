@@ -41,6 +41,14 @@ func (b *SQLBuilder) BuildSelect(q SelectQuery) (string, []any) {
 		sb.WriteString(clauses)
 	}
 
+	if len(q.GroupBy) > 0 {
+		fmt.Fprintf(&sb, " GROUP BY %s", strings.Join(q.GroupBy, ", "))
+	}
+	if len(q.Having) > 0 {
+		sb.WriteString(" HAVING ")
+		sb.WriteString(buildConditions(q.Having, &args, &idx))
+	}
+
 	if len(q.OrderBy) > 0 {
 		parts := make([]string, 0, len(q.OrderBy))
 		for _, o := range q.OrderBy {

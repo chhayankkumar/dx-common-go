@@ -94,6 +94,38 @@ func (rc *RedisChecker) Check(ctx context.Context) ServiceStatus {
 	}
 }
 
+// rabbitConn is satisfied by both rabbitmq.Client and rabbitmq.ReliablePublisher.
+// Defined here (rather than importing messaging/rabbitmq) so health stays a
+// leaf package with no dependency on the messaging stack.
+type rabbitConn interface {
+	IsConnected() bool
+}
+
+// RabbitMQChecker checks RabbitMQ connection liveness.
+type RabbitMQChecker struct {
+	conn rabbitConn
+}
+
+// NewRabbitMQChecker creates a health checker backed by anything exposing
+// IsConnected() bool — e.g. *rabbitmq.Client or *rabbitmq.ReliablePublisher.
+func NewRabbitMQChecker(conn rabbitConn) *RabbitMQChecker {
+	return &RabbitMQChecker{conn: conn}
+}
+
+// Check reports unhealthy when the underlying connection/channel is closed.
+func (rc *RabbitMQChecker) Check(ctx context.Context) ServiceStatus {
+	start := time.Now()
+	if !rc.conn.IsConnected() {
+		return ServiceStatus{
+			Name:     "rabbitmq",
+			Status:   "unhealthy",
+			Message:  "not connected",
+			Duration: time.Since(start),
+		}
+	}
+	return ServiceStatus{Name: "rabbitmq", Status: "healthy", Duration: time.Since(start)}
+}
+
 // CustomChecker is a simple checker with a custom check function
 type CustomChecker struct {
 	name  string

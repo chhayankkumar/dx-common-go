@@ -1,4 +1,8 @@
-package postgres
+// Package client provides pgxpool connection management and configuration
+// for PostgreSQL — connection pooling, pgx.QueryTracer composition
+// (MultiTracer), and slow-query logging (SlowQueryTracer). Transaction
+// helpers live in the sibling database/postgres/transaction package.
+package client
 
 import "time"
 

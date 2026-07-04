@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/datakaveri/dx-common-go/scheduler"
 )
 
 // Publish delivers one outbox row to the broker. Returning an error is
@@ -86,6 +88,28 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-d.kick:
 		}
 		d.drain(ctx)
+	}
+}
+
+// Job returns this Dispatcher's drain loop as a scheduler.Job, for services
+// migrating off the standalone Run(ctx) goroutine onto scheduler.Runner
+// (which adds panic recovery, metrics, and optional WithSingleton locking
+// for free). Run(ctx) is retained and fully supported — Job is an
+// additional entry point, not a replacement.
+//
+// name becomes the Job's Name (and, under scheduler.WithSingleton, the
+// advisory-lock key) — callers should namespace it per service (e.g.
+// "acl-outbox-dispatch"), since a bare "outbox-dispatch" name would collide
+// across every service reusing this same Dispatcher type against a shared
+// Postgres instance.
+func (d *Dispatcher) Job(name string) scheduler.Job {
+	return scheduler.Job{
+		Name:  name,
+		Every: d.interval,
+		Run: func(ctx context.Context) error {
+			d.drain(ctx)
+			return nil
+		},
 	}
 }
 

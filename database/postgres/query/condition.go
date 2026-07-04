@@ -2,27 +2,6 @@ package query
 
 import "fmt"
 
-// Operator represents a SQL comparison or membership operator.
-type Operator string
-
-const (
-	OpEq      Operator = "="
-	OpNotEq   Operator = "<>"
-	OpGt      Operator = ">"
-	OpGte     Operator = ">="
-	OpLt      Operator = "<"
-	OpLte     Operator = "<="
-	OpLike    Operator = "LIKE"
-	OpILike   Operator = "ILIKE"
-	OpIn      Operator = "IN"
-	OpNotIn   Operator = "NOT IN"
-	OpBetween Operator = "BETWEEN"
-	OpIsNull  Operator = "IS NULL"
-	OpNotNull Operator = "IS NOT NULL"
-	OpAnd     Operator = "AND"
-	OpOr      Operator = "OR"
-)
-
 // Condition represents one predicate in a WHERE clause.
 type Condition struct {
 	Column string
@@ -79,18 +58,18 @@ func (b *ConditionBuilder) Lte(column string, value any) *ConditionBuilder {
 }
 
 // Like appends column LIKE pattern.
-func (b *ConditionBuilder) Like(column string, pattern string) *ConditionBuilder {
+func (b *ConditionBuilder) Like(column, pattern string) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpLike, Value: pattern})
 	return b
 }
 
 // ILike appends column ILIKE pattern (case-insensitive).
-func (b *ConditionBuilder) ILike(column string, pattern string) *ConditionBuilder {
+func (b *ConditionBuilder) ILike(column, pattern string) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpILike, Value: pattern})
 	return b
 }
 
-// In appends column IN (values...).
+// In appends column IN (values...). values is a slice.
 func (b *ConditionBuilder) In(column string, values any) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpIn, Value: values})
 	return b

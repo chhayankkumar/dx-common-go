@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/datakaveri/dx-common-go/database/postgres/query"
@@ -27,6 +28,51 @@ func TestFinderAccumulation(t *testing.T) {
 	}
 	if f.limit != 20 || f.offset != 40 {
 		t.Fatalf("limit/offset = %d/%d", f.limit, f.offset)
+	}
+}
+
+// TestFinderJoinAndSelect pins the join-support surface: Join accumulates
+// repeatably, and selectColumns() stays nil (SELECT *) until Select is
+// called, at which point it becomes exactly the explicit list Select
+// accumulated (no implicit "<table>.*").
+func TestFinderJoinAndSelect(t *testing.T) {
+	d := NewBaseDAO[struct{}](nil, "policy")
+
+	plain := d.Query()
+	if cols := plain.selectColumns(); cols != nil {
+		t.Fatalf("selectColumns() on a plain finder = %v, want nil (SELECT *)", cols)
+	}
+
+	f := d.Query().
+		Join(query.Join{Type: "LEFT", Table: "user_table AS c", On: "policy.consumer_id = c._id"}).
+		Join(query.Join{Type: "LEFT", Table: "user_table AS o", On: "policy.owner_id = o._id"}).
+		Select("policy._id", "COALESCE(c.email_id,'') AS consumer_email", "COALESCE(o.email_id,'') AS owner_email")
+
+	if len(f.joins) != 2 {
+		t.Fatalf("joins = %d, want 2", len(f.joins))
+	}
+	want := []string{"policy._id", "COALESCE(c.email_id,'') AS consumer_email", "COALESCE(o.email_id,'') AS owner_email"}
+	if got := f.selectColumns(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("selectColumns() = %v, want %v", got, want)
+	}
+}
+
+// TestFinderGroupByHaving pins the aggregation surface: GroupBy/Having
+// accumulate onto the Finder, and Page falls off the FindPage fast-path the
+// moment either is used (a grouped query can't reuse FindPage's
+// Count-then-select shape without threading GroupBy/Having through both).
+func TestFinderGroupByHaving(t *testing.T) {
+	d := NewBaseDAO[struct{}](nil, "policy")
+	f := d.Query().
+		Select("status", "COUNT(*) AS total").
+		GroupBy("status").
+		Having(query.Gt("total", 5))
+
+	if len(f.groupBy) != 1 || f.groupBy[0] != "status" {
+		t.Fatalf("groupBy = %v, want [status]", f.groupBy)
+	}
+	if len(f.having) != 1 {
+		t.Fatalf("having = %d conditions, want 1", len(f.having))
 	}
 }
 

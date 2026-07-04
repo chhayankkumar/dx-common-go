@@ -15,8 +15,8 @@
 //
 // This package contributes the one piece every generated package needs but
 // sqlc does not provide: a DBTX provider that is TRANSACTION-PROPAGATION-
-// AWARE, so generated queries join an ambient postgres.InTransaction exactly
-// like repository.Base methods do:
+// AWARE, so generated queries join an ambient transaction.InTransaction
+// exactly like repository.Base methods do:
 //
 //	// in a repository (alongside its embedded repository.Base):
 //	q := sqlcgen.New(sqlcx.DB(ctx, r.Pool()))
@@ -26,8 +26,12 @@
 //
 //	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0 generate
 //
-// Reference implementation: dx-acl-go (sqlc.yaml, db/sqlc/, and
-// internal/repository/postgres/sqlcgen).
+// No service currently uses sqlc (dx-acl-go's one static join moved onto the
+// query DSL's Finder.Join/Select); the standing candidates for genuinely
+// complex queries are dx-community-layer-go (aggregates/JSON) and
+// dx-dataplane-ogc-go (PostGIS). Scaffold a new setup with `dx sqlc init`
+// (cmd/dx); the repository package's NewWithSQL attaches the generated
+// Queries type alongside the generic Base.
 package sqlcx
 
 import (
@@ -35,16 +39,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	dxpg "github.com/datakaveri/dx-common-go/database/postgres"
 	"github.com/datakaveri/dx-common-go/database/postgres/dao"
+	"github.com/datakaveri/dx-common-go/database/postgres/transaction"
 )
 
 // DB returns the ambient transaction when ctx carries one
-// (postgres.InTransaction / TxFromContext), else the pool. dao.Querier is
+// (transaction.InTransaction / TxFromContext), else the pool. dao.Querier is
 // structurally identical to sqlc's generated DBTX interface (Exec / Query /
 // QueryRow), so the return value can be passed straight to sqlcgen.New.
 func DB(ctx context.Context, pool *pgxpool.Pool) dao.Querier {
-	if tx, ok := dxpg.TxFromContext(ctx); ok {
+	if tx, ok := transaction.TxFromContext(ctx); ok {
 		return tx
 	}
 	return pool

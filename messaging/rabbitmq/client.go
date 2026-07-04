@@ -104,6 +104,14 @@ func (c *Client) Channel() *amqp.Channel {
 	return c.channel
 }
 
+// IsConnected reports whether the client currently holds an open channel.
+// Used by health.RabbitMQChecker; does not perform network IO.
+func (c *Client) IsConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.channel != nil && !c.channel.IsClosed()
+}
+
 // Close gracefully closes the channel and connection.
 func (c *Client) Close() error {
 	close(c.done)
