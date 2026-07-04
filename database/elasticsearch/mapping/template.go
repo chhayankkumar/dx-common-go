@@ -1,10 +1,20 @@
-package elastic
+// Package mapping is the schema and lifecycle layer of the Elasticsearch
+// framework: a fluent MappingBuilder for index-creation bodies (field types,
+// multi-fields, nested/join/vector fields, analyzers, templates), plus
+// alias/reindex/migrate operations that implement the versioned-index model.
+// It builds on the client transport and the indexing reindex primitive.
+package mapping
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/client"
 )
 
 // MappingBuilder assembles an index-creation body — mappings (field types,
@@ -14,8 +24,8 @@ import (
 //
 // Version mappings the same way as SQL migrations: the builder call lives in
 // the owning service, the physical index is named <alias>-vN, and a mapping
-// change that isn't expand-only ships as a new version + Reindex + SwapAlias
-// (DATABASE.md §8.4). Mappings are code — reviewed, diffed, and testable.
+// change that isn't expand-only ships as a new version + Reindex + SwapAlias.
+// Mappings are code — reviewed, diffed, and testable.
 type MappingBuilder struct {
 	properties       map[string]any
 	dynamic          string
@@ -85,8 +95,8 @@ func (m *MappingBuilder) Boolean(name string) *MappingBuilder {
 	return m.Field(name, map[string]any{"type": "boolean"})
 }
 
-// GeoPoint / GeoShape add geo fields (GeoDistance / GeoBoundingBox /
-// GeoShape queries).
+// GeoPoint / GeoShape add geo fields (query.GeoDistance / query.GeoBoundingBox /
+// query.GeoShape queries).
 func (m *MappingBuilder) GeoPoint(name string) *MappingBuilder {
 	return m.Field(name, map[string]any{"type": "geo_point"})
 }
@@ -95,9 +105,8 @@ func (m *MappingBuilder) GeoShape(name string) *MappingBuilder {
 }
 
 // DenseVector adds an ANN-indexed embedding field of dims dimensions —
-// searched with SearchRequest.KNN / SearchBuilder.KNN (vector + hybrid
-// search readiness). similarity is "cosine", "dot_product", or "l2_norm"
-// ("cosine" when empty).
+// searched with query.KNN (vector + hybrid search readiness). similarity is
+// "cosine", "dot_product", or "l2_norm" ("cosine" when empty).
 func (m *MappingBuilder) DenseVector(name string, dims int, similarity string) *MappingBuilder {
 	if similarity == "" {
 		similarity = "cosine"
@@ -107,7 +116,7 @@ func (m *MappingBuilder) DenseVector(name string, dims int, similarity string) *
 	})
 }
 
-// Completion adds a completion-suggester field (CompletionSuggester).
+// Completion adds a completion-suggester field (query.CompletionSuggester).
 func (m *MappingBuilder) Completion(name string) *MappingBuilder {
 	return m.Field(name, map[string]any{"type": "completion"})
 }
@@ -119,14 +128,14 @@ func (m *MappingBuilder) Object(name string, sub *MappingBuilder) *MappingBuilde
 
 // NestedField adds a nested object array — each element indexed as its own
 // hidden document so per-element conditions stay coherent (query with
-// Nested(path, inner)).
+// query.Nested(path, inner)).
 func (m *MappingBuilder) NestedField(name string, sub *MappingBuilder) *MappingBuilder {
 	return m.Field(name, map[string]any{"type": "nested", "properties": sub.properties})
 }
 
 // Join declares a parent-child join field: relations maps parent type →
-// child types, e.g. {"question": {"answer"}}. Query with HasChild /
-// HasParent / ParentID. Children must be routed to the parent's shard.
+// child types, e.g. {"question": {"answer"}}. Query with query.HasChild /
+// query.HasParent / query.ParentID. Children must be routed to the parent's shard.
 func (m *MappingBuilder) Join(name string, relations map[string][]string) *MappingBuilder {
 	return m.Field(name, map[string]any{"type": "join", "relations": relations})
 }
@@ -148,68 +157,6 @@ func (m *MappingBuilder) RuntimeField(name, kind, script string) *MappingBuilder
 func (m *MappingBuilder) DynamicTemplate(name string, template map[string]any) *MappingBuilder {
 	m.dynamicTemplates = append(m.dynamicTemplates, map[string]any{name: template})
 	return m
-}
-
-// ── analysis settings ───────────────────────────────────────────────────────
-
-// CustomAnalyzer registers an analyzer built from a tokenizer + filter chain,
-// e.g. CustomAnalyzer("en_text", "standard", "lowercase", "porter_stem").
-func (m *MappingBuilder) CustomAnalyzer(name, tokenizer string, filters ...string) *MappingBuilder {
-	if m.analyzers == nil {
-		m.analyzers = map[string]any{}
-	}
-	m.analyzers[name] = map[string]any{"type": "custom", "tokenizer": tokenizer, "filter": filters}
-	return m
-}
-
-// Tokenizer registers a custom tokenizer definition, e.g.
-// Tokenizer("edge_2_20", map[string]any{"type": "edge_ngram", "min_gram": 2, "max_gram": 20}).
-func (m *MappingBuilder) Tokenizer(name string, def map[string]any) *MappingBuilder {
-	if m.tokenizers == nil {
-		m.tokenizers = map[string]any{}
-	}
-	m.tokenizers[name] = def
-	return m
-}
-
-// TokenFilter registers a custom token filter definition.
-func (m *MappingBuilder) TokenFilter(name string, def map[string]any) *MappingBuilder {
-	if m.filters == nil {
-		m.filters = map[string]any{}
-	}
-	m.filters[name] = def
-	return m
-}
-
-// Synonyms registers a synonym filter (wire it into a CustomAnalyzer's
-// chain). Entries use Solr syntax: "car, automobile" or "tv => television".
-func (m *MappingBuilder) Synonyms(name string, entries ...string) *MappingBuilder {
-	return m.TokenFilter(name, map[string]any{"type": "synonym_graph", "synonyms": entries})
-}
-
-// Normalizer registers a keyword normalizer (case-insensitive sort/agg on
-// keyword fields), e.g. Normalizer("lowercase_sort", "lowercase").
-func (m *MappingBuilder) Normalizer(name string, filters ...string) *MappingBuilder {
-	if m.normalizer == nil {
-		m.normalizer = map[string]any{}
-	}
-	m.normalizer[name] = map[string]any{"type": "custom", "filter": filters}
-	return m
-}
-
-// Setting adds a raw index-level setting, e.g. Setting("number_of_shards", 1)
-// or Setting("refresh_interval", "30s").
-func (m *MappingBuilder) Setting(key string, value any) *MappingBuilder {
-	if m.settings == nil {
-		m.settings = map[string]any{}
-	}
-	m.settings[key] = value
-	return m
-}
-
-// Shards sets number_of_shards + number_of_replicas together.
-func (m *MappingBuilder) Shards(primaries, replicas int) *MappingBuilder {
-	return m.Setting("number_of_shards", primaries).Setting("number_of_replicas", replicas)
 }
 
 // Build renders the {settings, mappings} body for CreateIndex / EnsureIndex /
@@ -351,8 +298,8 @@ func jsonFieldName(f reflect.StructField) string {
 	return name
 }
 
-// Validate sanity-checks a built body (cheap guard for tests/boot): every
-// property must carry a type or sub-properties.
+// ValidateMapping sanity-checks a built body (cheap guard for tests/boot):
+// every property must carry a type or sub-properties.
 func ValidateMapping(body map[string]any) error {
 	mappings, _ := body["mappings"].(map[string]any)
 	props, _ := mappings["properties"].(map[string]any)
@@ -368,4 +315,19 @@ func ValidateMapping(body map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// PutIndexTemplate installs (or replaces) a composable index template: any
+// index later created with a name matching the template's index_patterns
+// inherits its settings/mappings. body is the full _index_template payload,
+// e.g. {"index_patterns": ["logs-*"], "template": {"mappings": {...}}}.
+func PutIndexTemplate(ctx context.Context, c *client.Client, name string, body map[string]any) error {
+	_, err := c.Do(ctx, http.MethodPut, "/_index_template/"+url.PathEscape(name), body)
+	return err
+}
+
+// DeleteIndexTemplate removes a composable index template.
+func DeleteIndexTemplate(ctx context.Context, c *client.Client, name string) error {
+	_, err := c.Do(ctx, http.MethodDelete, "/_index_template/"+url.PathEscape(name), nil)
+	return err
 }

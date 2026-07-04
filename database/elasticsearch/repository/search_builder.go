@@ -1,15 +1,20 @@
-package elastic
+package repository
 
-import "context"
+import (
+	"context"
+
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/client"
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/query"
+)
 
 // SearchBuilder is the fluent entry point for searches — bool composition,
 // sorting, pagination, aggregations, highlighting, suggesters, KNN, and PIT
-// in one chain, without hand-assembling a SearchRequest:
+// in one chain, without hand-assembling a query.SearchRequest:
 //
-//	res, err := es.NewSearch("catalogue").
-//	    Filter(Term("status", "ACTIVE")).
-//	    Filter(Term("provider", providerID)).
-//	    Must(Match("description", keyword)).
+//	res, err := repository.NewSearch(c, "catalogue").
+//	    Filter(query.Term("status", "ACTIVE")).
+//	    Filter(query.Term("provider", providerID)).
+//	    Must(query.Match("description", keyword)).
 //	    SortDesc("createdAt").
 //	    Page(page, size).
 //	    Do(ctx)
@@ -17,44 +22,53 @@ import "context"
 // Typed decoding: items, total, err := SearchAs[domain.Item](ctx, builder),
 // or start from a typed repo with repo.NewSearch().
 type SearchBuilder struct {
-	client  *Client
+	client  *client.Client
 	indices []string
 
-	boolQ    *BoolBuilder
-	rawQuery Query
+	boolQ    *query.BoolBuilder
+	rawQuery query.Query
 
-	req SearchRequest
+	req query.SearchRequest
 }
 
 // NewSearch starts a fluent search over one or more indices (none = all, or
 // the PIT's indices once PIT is set).
-func (c *Client) NewSearch(indices ...string) *SearchBuilder {
+func NewSearch(c *client.Client, indices ...string) *SearchBuilder {
 	return &SearchBuilder{client: c, indices: indices}
 }
 
-func (b *SearchBuilder) ensureBool() *BoolBuilder {
+func (b *SearchBuilder) ensureBool() *query.BoolBuilder {
 	if b.boolQ == nil {
-		b.boolQ = Bool()
+		b.boolQ = query.Bool()
 	}
 	return b.boolQ
 }
 
 // Must adds scoring AND clauses.
-func (b *SearchBuilder) Must(qs ...Query) *SearchBuilder { b.ensureBool().Must(qs...); return b }
+func (b *SearchBuilder) Must(qs ...query.Query) *SearchBuilder { b.ensureBool().Must(qs...); return b }
 
 // Should adds OR clauses.
-func (b *SearchBuilder) Should(qs ...Query) *SearchBuilder { b.ensureBool().Should(qs...); return b }
+func (b *SearchBuilder) Should(qs ...query.Query) *SearchBuilder {
+	b.ensureBool().Should(qs...)
+	return b
+}
 
 // MustNot adds exclusion clauses.
-func (b *SearchBuilder) MustNot(qs ...Query) *SearchBuilder { b.ensureBool().MustNot(qs...); return b }
+func (b *SearchBuilder) MustNot(qs ...query.Query) *SearchBuilder {
+	b.ensureBool().MustNot(qs...)
+	return b
+}
 
 // Filter adds non-scoring AND clauses — the cacheable filter context; prefer
 // it over Must for exact/term/range constraints.
-func (b *SearchBuilder) Filter(qs ...Query) *SearchBuilder { b.ensureBool().Filter(qs...); return b }
+func (b *SearchBuilder) Filter(qs ...query.Query) *SearchBuilder {
+	b.ensureBool().Filter(qs...)
+	return b
+}
 
 // Query sets a full query directly, replacing bool composition (use for a
 // single query or a pre-built FunctionScore).
-func (b *SearchBuilder) Query(q Query) *SearchBuilder { b.rawQuery = q; return b }
+func (b *SearchBuilder) Query(q query.Query) *SearchBuilder { b.rawQuery = q; return b }
 
 // SortAsc / SortDesc append sort keys in call order.
 func (b *SearchBuilder) SortAsc(field string) *SearchBuilder {
@@ -101,9 +115,9 @@ func (b *SearchBuilder) ExcludeSource(excludes ...string) *SearchBuilder {
 }
 
 // Agg attaches a named aggregation.
-func (b *SearchBuilder) Agg(name string, agg Agg) *SearchBuilder {
+func (b *SearchBuilder) Agg(name string, agg query.Agg) *SearchBuilder {
 	if b.req.Aggregations == nil {
-		b.req.Aggregations = map[string]Agg{}
+		b.req.Aggregations = map[string]query.Agg{}
 	}
 	b.req.Aggregations[name] = agg
 	return b
@@ -113,12 +127,12 @@ func (b *SearchBuilder) Agg(name string, agg Agg) *SearchBuilder {
 func (b *SearchBuilder) AggsOnly() *SearchBuilder { b.req.SizeZero = true; b.req.Size = 0; return b }
 
 // Highlight requests highlighted fragments.
-func (b *SearchBuilder) Highlight(h Highlight) *SearchBuilder { b.req.Highlight = &h; return b }
+func (b *SearchBuilder) Highlight(h query.Highlight) *SearchBuilder { b.req.Highlight = &h; return b }
 
 // Suggest attaches a named suggester.
-func (b *SearchBuilder) Suggest(name string, s Suggester) *SearchBuilder {
+func (b *SearchBuilder) Suggest(name string, s query.Suggester) *SearchBuilder {
 	if b.req.Suggest == nil {
-		b.req.Suggest = map[string]Suggester{}
+		b.req.Suggest = map[string]query.Suggester{}
 	}
 	b.req.Suggest[name] = s
 	return b
@@ -126,11 +140,11 @@ func (b *SearchBuilder) Suggest(name string, s Suggester) *SearchBuilder {
 
 // KNN adds an approximate nearest-neighbour clause (hybrid search when
 // combined with Must/Filter/Query).
-func (b *SearchBuilder) KNN(k KNN) *SearchBuilder { b.req.KNN = append(b.req.KNN, k); return b }
+func (b *SearchBuilder) KNN(k query.KNN) *SearchBuilder { b.req.KNN = append(b.req.KNN, k); return b }
 
 // PIT pins the search to an open point-in-time.
 func (b *SearchBuilder) PIT(id, keepAlive string) *SearchBuilder {
-	pit := PIT{ID: id, KeepAlive: keepAlive}
+	pit := query.PIT{ID: id, KeepAlive: keepAlive}
 	b.req.PIT = &pit
 	return b
 }
@@ -138,9 +152,9 @@ func (b *SearchBuilder) PIT(id, keepAlive string) *SearchBuilder {
 // TrackTotal forces exact hit counting past 10 000.
 func (b *SearchBuilder) TrackTotal() *SearchBuilder { b.req.TrackTotalHits = true; return b }
 
-// Request renders the accumulated SearchRequest (exposed for reuse in
-// Client.Scroll or tests).
-func (b *SearchBuilder) Request() SearchRequest {
+// Request renders the accumulated query.SearchRequest (exposed for reuse in
+// Scroll or tests).
+func (b *SearchBuilder) Request() query.SearchRequest {
 	req := b.req
 	switch {
 	case b.rawQuery != nil:
@@ -153,7 +167,7 @@ func (b *SearchBuilder) Request() SearchRequest {
 
 // Do executes the search.
 func (b *SearchBuilder) Do(ctx context.Context) (*SearchResult, error) {
-	return b.client.SearchMulti(ctx, b.indices, b.Request())
+	return SearchMulti(ctx, b.client, b.indices, b.Request())
 }
 
 // Count executes a count for the accumulated query (pagination/aggs ignored).
@@ -162,7 +176,7 @@ func (b *SearchBuilder) Count(ctx context.Context) (int64, error) {
 	if len(b.indices) > 0 {
 		index = b.indices[0]
 	}
-	return b.client.Count(ctx, index, b.Request().Query)
+	return Count(ctx, b.client, index, b.Request().Query)
 }
 
 // SearchAs runs the builder and decodes hits into T.

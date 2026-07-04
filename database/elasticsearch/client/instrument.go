@@ -1,4 +1,4 @@
-package elastic
+package client
 
 import (
 	"net/http"
@@ -36,8 +36,8 @@ func registerMetrics() {
 }
 
 // observedTransport wraps a RoundTripper with metrics and logging. It is the
-// module's instrumentation seam: OpenTelemetry tracing (ROADMAP PH-2) will
-// wrap the same transport rather than changing any call site.
+// module's instrumentation seam: OpenTelemetry tracing will wrap the same
+// transport rather than changing any call site.
 type observedTransport struct {
 	next    http.RoundTripper
 	logger  *zap.Logger

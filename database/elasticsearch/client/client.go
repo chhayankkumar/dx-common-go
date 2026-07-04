@@ -1,7 +1,11 @@
-// Package elastic is the Go counterpart of the Java dx-common Elasticsearch
-// module: a thin client plus composable query-DSL builders, so services
-// describe searches structurally instead of hand-writing JSON.
-package elastic
+// Package client is the transport layer of the Elasticsearch framework: a thin
+// wrapper over the official low-level client that owns connection lifecycle,
+// TLS, retries, observability, and the single request primitive (Do / DoNDJSON)
+// with dxerrors translation. Every higher-level package — query, repository,
+// mapping, indexing — builds on this seam rather than reaching for the raw
+// go-elasticsearch client, so error mapping and instrumentation live in exactly
+// one place.
+package client
 
 import (
 	"bytes"
@@ -18,60 +22,22 @@ import (
 	"time"
 
 	es "github.com/elastic/go-elasticsearch/v8"
-	"go.uber.org/zap"
 
 	dxerrors "github.com/datakaveri/dx-common-go/errors"
 )
 
-// Config holds Elasticsearch connection settings.
-type Config struct {
-	// Addresses is the list of node URLs, e.g. ["http://elasticsearch:9200"].
-	Addresses []string `mapstructure:"addresses"`
-	Username  string   `mapstructure:"username"`
-	Password  string   `mapstructure:"password"`
-	APIKey    string   `mapstructure:"api_key"`
-	// Timeout bounds each request. Default 10s.
-	Timeout time.Duration `mapstructure:"timeout"`
-
-	// CACertPath points at a PEM bundle to trust for TLS connections
-	// (self-signed / private-CA clusters). Ignored when Transport is set.
-	CACertPath string `mapstructure:"ca_cert_path"`
-	// InsecureSkipVerify disables TLS certificate verification — dev/test
-	// only, never production. Ignored when Transport is set.
-	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
-
-	// MaxRetries caps transport-level retries on 429/502/503/504 responses
-	// (exponential backoff). Default 3. Set DisableRetry to turn retries off
-	// entirely — e.g. for non-idempotent scripted updates where a replayed
-	// request must not run twice.
-	MaxRetries   int  `mapstructure:"max_retries"`
-	DisableRetry bool `mapstructure:"disable_retry"`
-
-	// MaxIdleConnsPerHost sizes the HTTP keep-alive pool per node. Go's
-	// default (2) throttles concurrent ES traffic badly; services with real
-	// search volume should set 32–100. Ignored when Transport is set.
-	MaxIdleConnsPerHost int `mapstructure:"max_idle_conns_per_host"`
-
-	// EnableMetrics publishes dx_elastic_requests_total{method,status} and
-	// dx_elastic_request_duration_seconds{method} to the default Prometheus
-	// registry (served by dx-common-go/metrics.Handler).
-	EnableMetrics bool `mapstructure:"enable_metrics"`
-
-	// Logger, when set, logs each request at Debug and failures at Warn.
-	// Runtime-only — not loadable from config files.
-	Logger *zap.Logger `mapstructure:"-"`
-	// Transport overrides the HTTP transport — the seam for tests (canned
-	// responses without a server) and for future instrumentation such as
-	// OpenTelemetry. When set, the TLS fields above are ignored: an explicit
-	// transport owns its own TLS configuration.
-	Transport http.RoundTripper `mapstructure:"-"`
+// Client wraps the official low-level client with JSON helpers and dxerrors
+// translation. Safe for concurrent use.
+type Client struct {
+	es      *es.Client
+	timeout time.Duration
 }
 
 // buildTransport resolves the effective RoundTripper for cfg: an explicit
 // Transport wins; otherwise a TLS-configured clone of the default transport
-// is built when CACertPath / InsecureSkipVerify demand one. The result (or
-// nil, meaning "library default") is then wrapped with observability when
-// metrics or logging are enabled.
+// is built when CACertPath / InsecureSkipVerify / MaxIdleConnsPerHost demand
+// one. The result (or nil, meaning "library default") is then wrapped with
+// observability when metrics or logging are enabled.
 func buildTransport(cfg Config) (http.RoundTripper, error) {
 	rt := cfg.Transport
 	if rt == nil && (cfg.CACertPath != "" || cfg.InsecureSkipVerify || cfg.MaxIdleConnsPerHost > 0) {
@@ -112,16 +78,9 @@ func buildTransport(cfg Config) (http.RoundTripper, error) {
 	return rt, nil
 }
 
-// Client wraps the official low-level client with JSON helpers and
-// dxerrors translation. Safe for concurrent use.
-type Client struct {
-	es      *es.Client
-	timeout time.Duration
-}
-
-// NewClient validates cfg, connects, and pings the cluster so configuration
-// errors surface at startup.
-func NewClient(cfg Config) (*Client, error) {
+// New validates cfg, connects, and pings the cluster so configuration errors
+// surface at startup.
+func New(cfg Config) (*Client, error) {
 	if len(cfg.Addresses) == 0 {
 		return nil, errors.New("elastic config: addresses is required")
 	}
@@ -158,22 +117,26 @@ func NewClient(cfg Config) (*Client, error) {
 
 	esClient, err := es.NewClient(esCfg)
 	if err != nil {
-		return nil, fmt.Errorf("elastic.NewClient: %w", err)
+		return nil, fmt.Errorf("elastic.New: %w", err)
 	}
 
 	c := &Client{es: esClient, timeout: cfg.Timeout}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
-	if _, err := c.do(ctx, http.MethodGet, "/", nil); err != nil {
-		return nil, fmt.Errorf("elastic.NewClient: ping: %w", err)
+	if _, err := c.Do(ctx, http.MethodGet, "/", nil); err != nil {
+		return nil, fmt.Errorf("elastic.New: ping: %w", err)
 	}
 	return c, nil
 }
 
-// do performs one JSON request against the cluster and returns the decoded
-// response body. Non-2xx statuses are translated to dxerrors.
-func (c *Client) do(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
+// Timeout is the per-request timeout the client applies.
+func (c *Client) Timeout() time.Duration { return c.timeout }
+
+// Do performs one JSON request against the cluster and returns the decoded
+// response body. Non-2xx statuses are translated to dxerrors. This is the
+// request primitive the query/repository/mapping/indexing packages build on.
+func (c *Client) Do(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
@@ -221,6 +184,42 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (json.Ra
 	return payload, nil
 }
 
+// DoNDJSON sends a newline-delimited JSON body (the bulk API). It does not
+// translate per-item failures — callers parse the bulk response for those; it
+// only surfaces transport/status-level failures.
+func (c *Client) DoNDJSON(ctx context.Context, path, body string) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("elastic: build bulk request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-ndjson")
+
+	res, err := c.es.Perform(req)
+	if err != nil {
+		return nil, fmt.Errorf("elastic: bulk request: %w", err)
+	}
+	defer res.Body.Close()
+	payload, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("elastic: read response: %w", err)
+	}
+	if res.StatusCode >= 400 {
+		return nil, fmt.Errorf("elastic: bulk status %d: %s", res.StatusCode, extractESError(payload))
+	}
+	return payload, nil
+}
+
+// IsNotFound reports whether err is a dxerrors NotFound — the shared way for
+// higher packages to turn a 404 into "exists = false" without re-importing the
+// error taxonomy's internals.
+func IsNotFound(err error) bool {
+	var dxe dxerrors.DxError
+	return errors.As(err, &dxe) && dxe.Code() == dxerrors.ErrNotFound
+}
+
 func extractESError(payload []byte) string {
 	var body struct {
 		Error struct {
@@ -236,19 +235,4 @@ func extractESError(payload []byte) string {
 		s = s[:300]
 	}
 	return s
-}
-
-// readAll drains a response body.
-func readAll(res *http.Response) ([]byte, error) {
-	payload, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("elastic: read response: %w", err)
-	}
-	return payload, nil
-}
-
-// dxIsNotFound reports whether err is a dxerrors NotFound.
-func dxIsNotFound(err error) bool {
-	var dxe dxerrors.DxError
-	return errors.As(err, &dxe) && dxe.Code() == dxerrors.ErrNotFound
 }

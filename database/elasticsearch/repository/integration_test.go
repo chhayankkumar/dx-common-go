@@ -1,4 +1,4 @@
-package elastic
+package repository
 
 import (
 	"context"
@@ -8,20 +8,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/client"
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/indexing"
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/mapping"
+	"github.com/datakaveri/dx-common-go/database/elasticsearch/query"
 	dxerrors "github.com/datakaveri/dx-common-go/errors"
 )
 
-// testClient connects to a real Elasticsearch instance for integration
-// tests. Set ES_TEST_ADDR (e.g. "http://localhost:19200") to run these;
-// otherwise they skip, since a database dependency shouldn't block a plain
-// `go test ./...`.
-func testClient(t *testing.T) *Client {
+// testClient connects to a real Elasticsearch instance for integration tests.
+// Set ES_TEST_ADDR (e.g. "http://localhost:19200") to run these; otherwise
+// they skip, since a database dependency shouldn't block a plain `go test ./...`.
+func testClient(t *testing.T) *client.Client {
 	t.Helper()
 	addr := os.Getenv("ES_TEST_ADDR")
 	if addr == "" {
 		t.Skip("ES_TEST_ADDR not set; skipping Elasticsearch integration test")
 	}
-	c, err := NewClient(Config{Addresses: []string{addr}, Timeout: 10 * time.Second})
+	c, err := client.New(client.Config{Addresses: []string{addr}, Timeout: 10 * time.Second})
 	if err != nil {
 		t.Fatalf("connect to test elasticsearch at %s: %v", addr, err)
 	}
@@ -33,21 +36,21 @@ type widgetDoc struct {
 	Rank int    `json:"rank"`
 }
 
-func freshIndex(t *testing.T, c *Client) string {
+func freshIndex(t *testing.T, c *client.Client) string {
 	t.Helper()
 	index := fmt.Sprintf("test-widgets-%d", time.Now().UnixNano())
-	if err := c.CreateIndex(context.Background(), index, nil); err != nil {
+	if err := mapping.CreateIndex(context.Background(), c, index, nil); err != nil {
 		t.Fatalf("create index %s: %v", index, err)
 	}
 	t.Cleanup(func() {
-		_, _ = c.do(context.Background(), "DELETE", "/"+index, nil)
+		_ = mapping.DeleteIndex(context.Background(), c, index)
 	})
 	return index
 }
 
-func refresh(t *testing.T, c *Client, index string) {
+func refresh(t *testing.T, c *client.Client, index string) {
 	t.Helper()
-	if _, err := c.do(context.Background(), "POST", "/"+index+"/_refresh", nil); err != nil {
+	if err := mapping.Refresh(context.Background(), c, index); err != nil {
 		t.Fatalf("refresh %s: %v", index, err)
 	}
 }
@@ -55,7 +58,7 @@ func refresh(t *testing.T, c *Client, index string) {
 func TestRepo_IndexGetSearch(t *testing.T) {
 	c := testClient(t)
 	index := freshIndex(t, c)
-	repo := NewRepo[widgetDoc](c, index)
+	repo := New[widgetDoc](c, index)
 	ctx := context.Background()
 
 	if err := repo.Index(ctx, "w1", widgetDoc{Name: "alpha", Rank: 1}); err != nil {
@@ -71,7 +74,7 @@ func TestRepo_IndexGetSearch(t *testing.T) {
 		t.Fatalf("Get returned %+v", got)
 	}
 
-	items, total, err := repo.Search(ctx, Match("name", "alpha"), SearchOpts{Size: 10})
+	items, total, err := repo.Search(ctx, query.Match("name", "alpha"), SearchOpts{Size: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -83,7 +86,7 @@ func TestRepo_IndexGetSearch(t *testing.T) {
 func TestRepo_Get_NotFound(t *testing.T) {
 	c := testClient(t)
 	index := freshIndex(t, c)
-	repo := NewRepo[widgetDoc](c, index)
+	repo := New[widgetDoc](c, index)
 
 	_, err := repo.Get(context.Background(), "does-not-exist")
 	if err == nil {
@@ -98,7 +101,7 @@ func TestRepo_Get_NotFound(t *testing.T) {
 func TestRepo_BulkIndexAndSearchAfter(t *testing.T) {
 	c := testClient(t)
 	index := freshIndex(t, c)
-	repo := NewRepo[widgetDoc](c, index)
+	repo := New[widgetDoc](c, index)
 	ctx := context.Background()
 
 	docs := map[string]widgetDoc{}
@@ -118,7 +121,7 @@ func TestRepo_BulkIndexAndSearchAfter(t *testing.T) {
 	var seen []int
 	var after []any
 	for {
-		items, next, err := repo.SearchAfter(ctx, MatchAll(), sort, after, 2)
+		items, next, err := repo.SearchAfter(ctx, query.MatchAll(), sort, after, 2)
 		if err != nil {
 			t.Fatalf("SearchAfter: %v", err)
 		}
@@ -145,16 +148,16 @@ func TestAdmin_AliasLifecycle(t *testing.T) {
 	indexB := freshIndex(t, c)
 	alias := fmt.Sprintf("test-alias-%d", time.Now().UnixNano())
 
-	if err := c.EnsureAlias(ctx, indexA, alias); err != nil {
+	if err := mapping.EnsureAlias(ctx, c, indexA, alias); err != nil {
 		t.Fatalf("EnsureAlias: %v", err)
 	}
-	repo := NewRepo[widgetDoc](c, alias)
+	repo := New[widgetDoc](c, alias)
 	if err := repo.Index(ctx, "w1", widgetDoc{Name: "via-alias", Rank: 1}); err != nil {
 		t.Fatalf("Index via alias: %v", err)
 	}
 	refresh(t, c, indexA)
 
-	if err := c.SwapAlias(ctx, alias, indexA, indexB); err != nil {
+	if err := mapping.SwapAlias(ctx, c, alias, indexA, indexB); err != nil {
 		t.Fatalf("SwapAlias: %v", err)
 	}
 
@@ -170,24 +173,24 @@ func TestAdmin_PutMappingAndReindex(t *testing.T) {
 	src := freshIndex(t, c)
 	dst := freshIndex(t, c)
 
-	if err := c.PutMapping(ctx, src, map[string]any{
+	if err := mapping.PutMapping(ctx, c, src, map[string]any{
 		"properties": map[string]any{"name": map[string]any{"type": "keyword"}},
 	}); err != nil {
 		t.Fatalf("PutMapping: %v", err)
 	}
 
-	repo := NewRepo[widgetDoc](c, src)
+	repo := New[widgetDoc](c, src)
 	if err := repo.Index(ctx, "w1", widgetDoc{Name: "reindex-me", Rank: 1}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 	refresh(t, c, src)
 
-	if err := c.Reindex(ctx, src, dst, ""); err != nil {
+	if err := indexing.Reindex(ctx, c, src, dst, ""); err != nil {
 		t.Fatalf("Reindex: %v", err)
 	}
 	refresh(t, c, dst)
 
-	dstRepo := NewRepo[widgetDoc](c, dst)
+	dstRepo := New[widgetDoc](c, dst)
 	got, err := dstRepo.Get(ctx, "w1")
 	if err != nil {
 		t.Fatalf("Get from reindexed target: %v", err)

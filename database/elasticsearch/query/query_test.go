@@ -1,7 +1,8 @@
-package elastic
+package query
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -47,7 +48,7 @@ func TestSearchRequestBody(t *testing.T) {
 		SourceIncludes: []string{"id", "name"},
 		Aggregations:   map[string]Agg{"by_status": TermsAgg("status", 5)},
 	}
-	got := mustJSON(t, req.body())
+	got := mustJSON(t, req.Body())
 	want := `{"_source":{"includes":["id","name"]},"aggs":{"by_status":{"terms":{"field":"status","size":5}}},"from":20,"query":{"match_all":{}},"size":10,"sort":[{"created_at":"desc"}]}`
 	if got != want {
 		t.Fatalf("search body mismatch:\n got: %s\nwant: %s", got, want)
@@ -87,16 +88,40 @@ func TestScriptScoreSerialization(t *testing.T) {
 	}
 }
 
-func TestHitsAs(t *testing.T) {
-	type doc struct {
-		Name string `json:"name"`
+func TestDSLv2Render(t *testing.T) {
+	cases := []struct {
+		name string
+		q    any
+		want []string
+	}{
+		{"fuzzy", Fuzzy("name", "solr", ""), []string{`"fuzzy"`, `"fuzziness":"AUTO"`}},
+		{"regexp", Regexp("tag", "sen.*r"), []string{`"regexp"`, `"value":"sen.*r"`}},
+		{"script query", ScriptQuery("doc['a'].value > params.n", map[string]any{"n": 5}), []string{`"script"`, `"params":{"n":5}`}},
+		{"has_child", HasChild("answer", MatchAll(), "max"), []string{`"has_child"`, `"type":"answer"`, `"score_mode":"max"`}},
+		{"has_parent", HasParent("question", Term("topic", "es")), []string{`"has_parent"`, `"parent_type":"question"`}},
+		{"parent_id", ParentID("answer", "q1"), []string{`"parent_id"`, `"id":"q1"`}},
+		{"function_score", FunctionScore(Match("t", "x")).
+			FieldValueFactor("popularity", 1.2, "log1p", 1).
+			Weight(2, Term("featured", true)).
+			Decay("gauss", "createdAt", "now", "30d").
+			ScoreMode("sum").BoostMode("multiply").Build(),
+			[]string{`"function_score"`, `"field_value_factor"`, `"weight":2`, `"gauss"`, `"score_mode":"sum"`}},
 	}
-	res := &SearchResult{Hits: []Hit{
-		{ID: "1", Source: json.RawMessage(`{"name":"a"}`)},
-		{ID: "2", Source: json.RawMessage(`{"name":"b"}`)},
-	}}
-	docs, err := HitsAs[doc](res)
-	if err != nil || len(docs) != 2 || docs[1].Name != "b" {
-		t.Fatalf("HitsAs failed: %v %+v", err, docs)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mustJSON(t, tc.q)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s: rendered %s missing %s", tc.name, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestKNNBodyDefaults(t *testing.T) {
+	body := KNN{Field: "embedding", QueryVector: []float32{0.1, 0.2}, K: 10}.Body()
+	if body["num_candidates"] != 100 {
+		t.Fatalf("num_candidates default should be 10*K, got %v", body["num_candidates"])
 	}
 }

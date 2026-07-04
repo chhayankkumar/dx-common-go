@@ -1,4 +1,4 @@
-package elastic
+package client
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 
 // ClusterHealth returns the cluster status: "green", "yellow", or "red".
 func (c *Client) ClusterHealth(ctx context.Context) (string, error) {
-	payload, err := c.do(ctx, http.MethodGet, "/_cluster/health", nil)
+	payload, err := c.Do(ctx, http.MethodGet, "/_cluster/health", nil)
 	if err != nil {
 		return "", err
 	}
