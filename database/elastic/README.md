@@ -1,81 +1,127 @@
-# `database/elastic` — the shared Elasticsearch module
+# `database/elastic` — the shared Elasticsearch framework
 
-Generic, production-grade Elasticsearch infrastructure for every DX Go service: one configurable client, a composable query DSL, a typed per-index repository, index-lifecycle admin, bulk operations, health checks, and built-in observability. **Infrastructure only** — no service-specific logic lives here; mappings, index names, and search behaviour belong to the consuming service.
+Production-grade, generic Elasticsearch infrastructure for every DX Go service: configurable client, fluent query DSL, typed repositories, mapping framework, index-lifecycle orchestration, bulk operations, suggesters, scroll/PIT, vector/hybrid search readiness, health checks, and built-in observability. **Infrastructure only** — mappings, index names, and search behaviour belong to the consuming service.
 
-Reference consumer: `dx-catalogue-go` (`internal/elasticrepo` wraps `Repo[domain.Item]`, business queries stay in its `internal/query`).
+Reference consumer: `dx-catalogue-go` (`internal/elasticrepo` wraps `Repo[domain.Item]`; business queries stay in its `internal/query`).
 
 ---
 
-## Adopting it in a service
+## 1. Adopting it in a service
 
 ```go
 import dxelastic "github.com/datakaveri/dx-common-go/database/elastic"
 
-es, err := dxelastic.NewClient(cfg.Elastic)        // pings at startup; config errors fail fast
-repo := dxelastic.NewRepo[domain.Thing](es, cfg.Index)
-
-// health wiring (dx-common-go/health):
+es, err := dxelastic.NewClient(cfg.Elastic)          // pings at startup — config errors fail fast
+repo := dxelastic.NewRepo[domain.Thing](es, "things") // typed repository over one index/alias
 hh.Register("elasticsearch", health.NewCustomChecker("elasticsearch", es.HealthCheck))
 ```
 
 ```yaml
-# configs/config.yaml
 elastic:
   addresses: ["http://elasticsearch:9200"]
   timeout: 10s
-  # username / password / api_key          — auth (pick one scheme)
-  # ca_cert_path: /etc/ssl/es-ca.pem       — private-CA TLS
-  # insecure_skip_verify: true             — dev/test ONLY
-  # max_retries: 3 / disable_retry: true   — transport retry policy
-  # enable_metrics: true                   — Prometheus dx_elastic_* metrics
+  max_idle_conns_per_host: 32      # connection pool (Go default 2 is too low under load)
+  # username/password | api_key    — auth
+  # ca_cert_path / insecure_skip_verify — TLS (skip-verify: dev only)
+  # max_retries: 3 | disable_retry — transport retries on 429/502/503/504
+  # enable_metrics: true           — dx_elastic_* Prometheus metrics
 ```
 
-That's the whole integration: config → client → typed repo → health check.
-
-## Configuration reference
+## 2. Configuration reference
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `addresses` | — (required) | node URLs |
-| `username` / `password` / `api_key` | — | basic auth or API key |
+| `addresses` | — required | node URLs |
+| `username`/`password`/`api_key` | — | auth |
 | `timeout` | `10s` | per-request bound |
-| `ca_cert_path` | — | PEM bundle for private-CA clusters |
-| `insecure_skip_verify` | `false` | dev/test only; never production |
-| `max_retries` | `3` | transport retries on 429/502/503/504, exponential backoff |
-| `disable_retry` | `false` | turn retries off (e.g. non-idempotent scripted updates) |
-| `enable_metrics` | `false` | `dx_elastic_requests_total{method,status}` + `dx_elastic_request_duration_seconds{method}` on the default registry |
-| `Logger` (runtime) | — | zap logger: Debug per request, Warn on failures |
-| `Transport` (runtime) | — | custom `http.RoundTripper` — the test-mock / instrumentation seam; when set, TLS fields are ignored |
+| `max_idle_conns_per_host` | Go default (2) | HTTP keep-alive pool per node; set 32–100 for real traffic |
+| `ca_cert_path` / `insecure_skip_verify` | — / false | TLS trust / dev-only skip |
+| `max_retries` / `disable_retry` | 3 / false | retry on 429/502/503/504, exponential backoff |
+| `enable_metrics` | false | `dx_elastic_requests_total{method,status}` + duration histogram |
+| `Logger` (runtime) | — | zap: Debug per request, Warn on failure |
+| `Transport` (runtime) | — | RoundTripper seam: test mocks + future OTel; overrides TLS fields |
 
-## What's where
+## 3. Fluent search DSL
 
-| Concern | API |
-|---------|-----|
-| Documents | `IndexDoc · GetDoc · UpdateDoc · ScriptUpdate · UpdateByQuery · DeleteDoc · DeleteByQuery` |
-| Search | `Search(index, SearchRequest{Query, Size/From, Sort, SearchAfter, SourceIncludes/Excludes, Aggregations, TrackTotalHits, Highlight})` · `Count` · `HitsAs[T]` |
-| Typed repo | `Repo[T]`: `Get · Index · Search · SearchAfter · BulkIndex` — the common single-index case; drop to `*Client` for aggregations/highlights/scripts |
-| Query DSL | `Match · MatchFuzzy · MatchPhrase · MultiMatch · MatchBoolPrefix · Term/Terms · Exists · Wildcard · Prefix · IDs · QueryString · Range · Nested · Bool()… · Geo{BoundingBox,Distance,Shape} · ScriptScore`; aggs: `TermsAgg · MetricAgg · DateHistogramAgg · FilterAgg · .Sub` |
-| Bulk | `BulkDo(index, []BulkOp{IndexOp/UpdateOp/DeleteOp}, attempts)` → `BulkStats` (per-item errors, transport-level retry with backoff); `BulkIndexWithRetry` convenience |
-| Index lifecycle | `EnsureIndex · CreateIndex · DeleteIndex · IndexExists · PutMapping · EnsureAlias · SwapAlias · AliasIndices · Reindex · PutIndexTemplate · DeleteIndexTemplate` |
-| Health | `ClusterHealth` · `HealthCheck` (nil for green/**yellow** — single-node dev is always yellow; error for red/unreachable) |
-| Errors | non-2xx → `dxerrors` (`NotFound`, `Validation`, `Conflict`, `Internal`) — handlers translate uniformly |
+```go
+items, total, err := dxelastic.SearchAs[domain.Item](ctx,
+    es.NewSearch("catalogue").
+        Filter(dxelastic.Term("status", "ACTIVE")).
+        Filter(dxelastic.Term("provider.keyword", providerID)).
+        Must(dxelastic.Match("description", keyword)).
+        Highlight(dxelastic.Highlight{Fields: []string{"description"}}).
+        SortDesc("createdAt").
+        Page(page, size))
+```
 
-## Best practices
+- **Builder verbs:** `Index(...)` via `NewSearch(indices...)` (multi-index), `Must/Should/MustNot/Filter`, `Query` (raw/function-score), `SortAsc/SortDesc`, `Page/From/Size/SearchAfter`, `Source/ExcludeSource`, `Agg/AggsOnly`, `Highlight`, `Suggest`, `KNN`, `PIT`, `TrackTotal`, then `Do` / `Count` / `SearchAs[T]`.
+- **Query builders:** `MatchAll · Match · MatchPhrase · MatchFuzzy · MatchBoolPrefix (auto-complete) · MultiMatch · Term/Terms · Exists · Prefix · Wildcard · Regexp · Fuzzy · IDs · QueryString · Range · Nested · HasChild/HasParent/ParentID · GeoBoundingBox/GeoDistance/GeoShape · ScriptQuery · ScriptScore · FunctionScore(...).FieldValueFactor/Weight/Decay · Bool()`
+- **Aggregations:** `TermsAgg · MetricAgg · DateHistogramAgg · FilterAgg · .Sub` (+ raw `Agg` maps for anything else).
+- **Suggesters:** `TermSuggester` (spelling), `PhraseSuggester` (did-you-mean), `CompletionSuggester` (type-ahead over a `Completion` mapping field); results in `SearchResult.Suggest`.
+- **Vector / hybrid:** map a field with `DenseVector(name, dims, similarity)`, search with `.KNN(KNN{Field, QueryVector, K})`; combine KNN with `Must/Filter` clauses and ES blends both — the hybrid form.
+- Filter context (`Filter`) is cacheable and unscored — prefer it over `Must` for exact/term/range constraints.
 
-1. **Address data through an alias, never a physical index** (`iudx-docs` → `iudx-docs-v1`). Breaking mapping change = `CreateIndex(v2)` → `Reindex` → `SwapAlias` → `DeleteIndex(v1)`. Expand-only changes = `PutMapping`. (DATABASE.md §8.4 in `cdpg-claude/claude-docs`.)
-2. **Provision, don't migrate, at boot**: `EnsureIndex` creates-if-absent and never touches an existing index. While a service shares a legacy index, the legacy owner keeps the mapping (dev provisioning is `es-init`).
-3. **Deep pagination** past 10 000 results uses `SearchAfter` with a deterministic sort — never large `From` offsets.
-4. **Bulk**: treat `BulkStats.Errors` as data, not an exception — a batch routinely partially succeeds. Retries only re-run the batch on transport failure, so make bulk writes idempotent (stable ids).
-5. **Retries are on by default** (429/502/503/504). Disable them (`disable_retry`) for requests that must not replay.
-6. **Highlighting** is request-level (`SearchRequest.Highlight`) and returns per-hit fragments in `Hit.Highlight` — use `Client.Search` (the typed `Repo` deliberately returns only `_source`).
+## 4. Typed repository (`Repo[T]`)
 
-## Observability & extension points
+`NewRepo[T](client, index)` — the `BaseSearchRepository`: `FindByID/Get · Exists · Index · Update · Delete · Count · Search · SearchAfter · BulkIndex · BulkDelete · ReindexTo · NewSearch()` (+ `Client()` escape hatch for aggregations/scripts/admin). Services add only domain-specific methods on top — see catalogue's `elasticrepo`.
 
-- `enable_metrics: true` + `Logger` give metrics/logging with zero call-site changes; both are implemented as a `RoundTripper` wrapper.
-- The same **`Transport` seam** is where OpenTelemetry tracing plugs in later (ROADMAP PH-2) — wrap, don't fork.
-- The DSL types are open maps (`Query`, `Agg`), so any ES feature the helpers don't cover can be expressed inline without waiting for a library change.
+Bulk semantics: `BulkDo(index, []BulkOp{IndexOp/UpdateOp/DeleteOp}, attempts)` returns `BulkStats` — per-item failures are **data**, not an error (a batch routinely partially succeeds); the whole batch retries only on transport failure. Keep bulk writes idempotent (stable ids).
 
-## Testing
+## 5. Mapping framework
 
-- **Unit / mock** (no ES): either point `NewClient` at an `httptest.Server`, or inject a fake via `Config.Transport`. Every mocked response **must set the `X-Elastic-Product: Elasticsearch` header** — the official client refuses to talk to anything else. See `client_test.go` for both patterns.
-- **Integration** (real ES): tests are gated on `ES_TEST_ADDR` (skip otherwise), e.g. `ES_TEST_ADDR=http://localhost:9200 go test ./database/elastic/...` against the dev stack's Elasticsearch. See `integration_test.go`.
+```go
+body := dxelastic.NewMapping().
+    Dynamic("strict").
+    TextWithKeyword("name").
+    Keyword("status").Date("createdAt").
+    NestedField("attachments", dxelastic.NewMapping().Keyword("fileKey").Long("size")).
+    DenseVector("embedding", 384, "cosine").
+    CustomAnalyzer("en_text", "standard", "lowercase", "en_syn").
+    Synonyms("en_syn", "tv => television").
+    Shards(1, 1).Setting("refresh_interval", "30s").
+    Build()                                   // → CreateIndex / EnsureIndex / MigrateIndex
+```
+
+- Field types: text (+keyword multi-field), keyword, date, long, double, boolean, geo_point/geo_shape, dense_vector, completion, object, **nested**, **join** (parent-child), plus raw `Field()` for anything else.
+- Analysis: custom analyzers, tokenizers, token filters, **synonyms** (`synonym_graph`), normalizers — multi-language = one analyzer per language wired to per-language fields.
+- `Dynamic("strict")` for production indices; `DynamicTemplate` + `RuntimeField` for controlled flexibility.
+- **`AutoMap[T]()`** generates a mapping from a Go struct (json tags; `es:"keyword"` overrides; `es:"-"` skips; slices-of-struct → nested) — treat it as a *reviewed starting point*: generate, inspect, commit. `ValidateMapping` sanity-checks bodies in tests.
+- **Versioning:** mappings are code, in the owning service, applied to versioned physical indices (`<alias>-vN`) behind a stable alias — same review/diff discipline as SQL migrations (DATABASE.md §8.4).
+
+## 6. Index lifecycle (best practices)
+
+| Concern | Practice | API |
+|---------|----------|-----|
+| Versioning | physical `name-vN`, clients only ever see the alias | `EnsureIndex`, `EnsureAlias` |
+| Blue/green + zero-downtime reindex | create v(N+1) → copy → atomic alias swap → keep vN as instant rollback, delete later | **`MigrateIndex(alias, newIndex, body, opts)`** (orchestrates it; `DeleteOld:false` = rollback-safe) |
+| Migrations | expand-only → `PutMapping` on the live index; anything else → `MigrateIndex` | `PutMapping` |
+| Writes during copy | land in the old index — pause writes, dual-write, or run a catch-up `Reindex` after the swap | documented on `MigrateIndex` |
+| Templates | pattern-matched settings/mappings for families of indices (logs/time-series) | `PutIndexTemplate` |
+| Retention / ILM | hot→warm→delete policies for time-series; pair the policy with a template | `PutILMPolicy` |
+| Snapshots / backup | ops-level: snapshot repository (S3/MinIO) + SLM schedule; restore = register repo + `_restore`. Not wrapped by this module — cluster admin, not service code | — |
+
+## 7. Performance defaults (recommended)
+
+| Area | Recommendation |
+|------|----------------|
+| Shards | 1 primary per index until >30–50 GB; never per-service shard sprawl on a small cluster |
+| Replicas | 1 in prod (HA + read throughput); 0 in dev/single-node (cluster stays yellow otherwise — `HealthCheck` treats yellow as healthy for exactly this reason) |
+| Refresh | leave `1s` default for interactive indices; `refresh_interval: 30s` for write-heavy; **bulk loads**: `UpdateIndexSettings` → `{refresh_interval: "-1", number_of_replicas: 0}`, load with `BulkDo` (1 000–5 000 docs or 5–15 MB per batch), restore settings, one `Refresh` |
+| Never | per-document `Refresh`; giant `From` offsets; leading-wildcard/regex on hot paths |
+| Pagination | `Page` (from/size) up to 10 000; past that **PIT + Sort + SearchAfter** (consistent snapshot, no server state per page); `TrackTotal` only when the exact count matters |
+| Scroll vs search_after | Scroll only for full exports/ETL (then `ClearScroll`); user-facing deep pagination = PIT + search_after |
+| Query shape | exact constraints in `Filter` (cached filter context); text relevance in `Must`; `Source(...)` to trim payloads; `AggsOnly` for facet-only calls |
+| Connections | `max_idle_conns_per_host: 32+` under real traffic |
+| Caching | ES's filter/request caches do the work when filters are stable; add app-level caching (dx-common-go `cache`) only for hot, slow aggregations |
+| Large datasets | ILM tiers for time-series; `BulkStats`-driven ingest monitoring; dense_vector `num_candidates` ≈ 10×K (the default) as the recall/latency starting point |
+
+## 8. Observability, health, errors
+
+- Metrics + zap logging via `enable_metrics`/`Logger` — implemented as a `RoundTripper` wrapper; OTel tracing plugs into the same `Transport` seam later (ROADMAP PH-2).
+- `HealthCheck` (green/yellow ok, red/unreachable fails) plugs into `dx-common-go/health`.
+- All non-2xx responses map to `dxerrors` (`NotFound`/`Validation`/`Conflict`/`Internal`) — uniform handler translation.
+
+## 9. Testing
+
+- **Unit/mock, no ES**: point `NewClient` at an `httptest.Server` or inject `Config.Transport`. Mocks **must** send `X-Elastic-Product: Elasticsearch` (the official client's product check). Patterns: `client_test.go`, `framework_test.go`.
+- **Integration**: gated on `ES_TEST_ADDR` (skips otherwise): `ES_TEST_ADDR=http://localhost:9200 go test ./database/elastic/...` against the dev stack.

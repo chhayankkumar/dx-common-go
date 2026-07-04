@@ -36,6 +36,62 @@ type SearchRequest struct {
 	// Highlight requests highlighted fragments for matching fields; results
 	// arrive per hit in Hit.Highlight.
 	Highlight *Highlight
+	// Suggest attaches named suggesters (term / phrase / completion); results
+	// arrive in SearchResult.Suggest under the same names.
+	Suggest map[string]Suggester
+	// KNN adds approximate nearest-neighbour clauses (dense_vector fields).
+	// Combined with Query, Elasticsearch blends both result sets — the
+	// hybrid-search form. Requires a dense_vector mapping with index: true.
+	KNN []KNN
+	// PIT pins the search to a point-in-time view (see Client.OpenPIT). When
+	// set, the request goes to /_search without an index path — the PIT id
+	// already identifies the indices. Combine with Sort + SearchAfter for
+	// consistent deep pagination.
+	PIT *PIT
+}
+
+// KNN is one approximate nearest-neighbour clause.
+type KNN struct {
+	// Field is the dense_vector field to search.
+	Field string
+	// QueryVector is the embedding to match against.
+	QueryVector []float32
+	// K is the number of neighbours to return.
+	K int
+	// NumCandidates is the per-shard candidate pool (>= K; higher = better
+	// recall, slower). Defaults to 10*K when zero.
+	NumCandidates int
+	// Filter restricts the candidate documents (applied during the ANN walk).
+	Filter Query
+	// Boost weights this clause when blending with Query (hybrid search).
+	Boost float64
+}
+
+func (k KNN) body() map[string]any {
+	numCandidates := k.NumCandidates
+	if numCandidates <= 0 {
+		numCandidates = 10 * k.K
+	}
+	body := map[string]any{
+		"field":          k.Field,
+		"query_vector":   k.QueryVector,
+		"k":              k.K,
+		"num_candidates": numCandidates,
+	}
+	if k.Filter != nil {
+		body["filter"] = k.Filter
+	}
+	if k.Boost > 0 {
+		body["boost"] = k.Boost
+	}
+	return body
+}
+
+// PIT references an open point-in-time (Client.OpenPIT).
+type PIT struct {
+	ID string
+	// KeepAlive extends the PIT on each use, e.g. "1m".
+	KeepAlive string
 }
 
 // Highlight describes a highlighting request. Zero values fall back to
@@ -86,11 +142,14 @@ type Hit struct {
 	Highlight map[string][]string `json:"highlight,omitempty"`
 }
 
-// SearchResult carries hits, the total match count, and raw aggregations.
+// SearchResult carries hits, the total match count, raw aggregations, and
+// suggester results.
 type SearchResult struct {
 	Hits         []Hit
 	Total        int64
 	Aggregations map[string]json.RawMessage
+	// Suggest holds options per named suggester from SearchRequest.Suggest.
+	Suggest map[string][]SuggestOption
 }
 
 // HitsAs decodes every hit's _source into T.
@@ -144,16 +203,62 @@ func (r SearchRequest) body() map[string]any {
 	if r.Highlight != nil && len(r.Highlight.Fields) > 0 {
 		body["highlight"] = r.Highlight.body()
 	}
+	if len(r.Suggest) > 0 {
+		body["suggest"] = r.Suggest
+	}
+	if len(r.KNN) > 0 {
+		knn := make([]map[string]any, 0, len(r.KNN))
+		for _, k := range r.KNN {
+			knn = append(knn, k.body())
+		}
+		body["knn"] = knn
+	}
+	if r.PIT != nil {
+		pit := map[string]any{"id": r.PIT.ID}
+		if r.PIT.KeepAlive != "" {
+			pit["keep_alive"] = r.PIT.KeepAlive
+		}
+		body["pit"] = pit
+	}
 	return body
 }
 
-// Search executes req against index.
+// searchPath renders the request path for indices: one, several (multi-index
+// search), or none (PIT searches, which carry their indices in the PIT id).
+func searchPath(indices []string) string {
+	if len(indices) == 0 {
+		return "/_search"
+	}
+	escaped := make([]string, len(indices))
+	for i, idx := range indices {
+		escaped[i] = url.PathEscape(idx)
+	}
+	return "/" + strings.Join(escaped, ",") + "/_search"
+}
+
+// Search executes req against index. When req.PIT is set the index is
+// ignored (the PIT id carries the indices).
 func (c *Client) Search(ctx context.Context, index string, req SearchRequest) (*SearchResult, error) {
-	payload, err := c.do(ctx, http.MethodPost, "/"+url.PathEscape(index)+"/_search", req.body())
+	if index == "" {
+		return c.SearchMulti(ctx, nil, req)
+	}
+	return c.SearchMulti(ctx, []string{index}, req)
+}
+
+// SearchMulti executes req across several indices in one request (nil/empty
+// indices = all, or the PIT's indices when req.PIT is set).
+func (c *Client) SearchMulti(ctx context.Context, indices []string, req SearchRequest) (*SearchResult, error) {
+	if req.PIT != nil {
+		indices = nil // a PIT search must not name indices in the path
+	}
+	payload, err := c.do(ctx, http.MethodPost, searchPath(indices), req.body())
 	if err != nil {
 		return nil, err
 	}
+	return parseSearchResult(payload)
+}
 
+func parseSearchResult(payload json.RawMessage) (*SearchResult, error) {
 	var resp struct {
 		Hits struct {
 			Total struct {
@@ -162,6 +267,7 @@ func (c *Client) Search(ctx context.Context, index string, req SearchRequest) (*
 			Hits []Hit `json:"hits"`
 		} `json:"hits"`
 		Aggregations map[string]json.RawMessage `json:"aggregations"`
+		Suggest      map[string][]suggestEntry  `json:"suggest"`
 	}
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		return nil, fmt.Errorf("elastic: decode search response: %w", err)
@@ -170,6 +276,7 @@ func (c *Client) Search(ctx context.Context, index string, req SearchRequest) (*
 		Hits:         resp.Hits.Hits,
 		Total:        resp.Hits.Total.Value,
 		Aggregations: resp.Aggregations,
+		Suggest:      flattenSuggest(resp.Suggest),
 	}, nil
 }
 

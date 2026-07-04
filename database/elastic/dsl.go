@@ -257,3 +257,128 @@ func (a Agg) Sub(name string, child Agg) Agg {
 	a["aggs"] = subs
 	return a
 }
+
+// ── DSL v2 — fuzzy/regexp, parent-child, function score, script ────────────
+
+// Fuzzy matches terms within an edit distance of value. fuzziness is "AUTO",
+// "0", "1", or "2" ("AUTO" when empty). Prefer MatchFuzzy for analyzed text;
+// Fuzzy operates on exact terms (keyword fields).
+func Fuzzy(field string, value any, fuzziness string) Query {
+	if fuzziness == "" {
+		fuzziness = "AUTO"
+	}
+	return Query{"fuzzy": map[string]any{field: map[string]any{"value": value, "fuzziness": fuzziness}}}
+}
+
+// Regexp matches terms against a regular expression (Lucene syntax). Anchored
+// by ES semantics: the pattern must match the whole term. Use sparingly —
+// leading wildcards scan the term dictionary.
+func Regexp(field, pattern string) Query {
+	return Query{"regexp": map[string]any{field: map[string]any{"value": pattern}}}
+}
+
+// ScriptQuery filters documents with a Painless predicate (filter context —
+// no scoring). params are exposed to the script as params.*.
+func ScriptQuery(source string, params map[string]any) Query {
+	script := map[string]any{"source": source, "lang": "painless"}
+	if len(params) > 0 {
+		script["params"] = params
+	}
+	return Query{"script": map[string]any{"script": script}}
+}
+
+// HasChild matches parent documents whose children (declared via a join
+// field — see MappingBuilder.Join) match query. scoreMode is "none", "avg",
+// "sum", "max", or "min" ("none" when empty).
+func HasChild(childType string, query Query, scoreMode string) Query {
+	body := map[string]any{"type": childType, "query": query}
+	if scoreMode != "" {
+		body["score_mode"] = scoreMode
+	}
+	return Query{"has_child": body}
+}
+
+// HasParent matches child documents whose parent matches query.
+func HasParent(parentType string, query Query) Query {
+	return Query{"has_parent": map[string]any{"parent_type": parentType, "query": query}}
+}
+
+// ParentID matches children of one specific parent document.
+func ParentID(childType, id string) Query {
+	return Query{"parent_id": map[string]any{"type": childType, "id": id}}
+}
+
+// FunctionScoreBuilder composes a function_score query: a base query whose
+// relevance is reshaped by scoring functions.
+type FunctionScoreBuilder struct {
+	query     Query
+	functions []map[string]any
+	scoreMode string
+	boostMode string
+}
+
+// FunctionScore starts a function_score over query (nil = match_all).
+func FunctionScore(query Query) *FunctionScoreBuilder {
+	return &FunctionScoreBuilder{query: query}
+}
+
+// FieldValueFactor multiplies relevance by a document field, e.g.
+// FieldValueFactor("popularity", 1.2, "log1p", 1) — modifier may be "" (none),
+// missing is the value used when the field is absent.
+func (f *FunctionScoreBuilder) FieldValueFactor(field string, factor float64, modifier string, missing float64) *FunctionScoreBuilder {
+	fn := map[string]any{"field": field, "factor": factor, "missing": missing}
+	if modifier != "" {
+		fn["modifier"] = modifier
+	}
+	f.functions = append(f.functions, map[string]any{"field_value_factor": fn})
+	return f
+}
+
+// Weight boosts documents matching filter by weight (filter nil = all).
+func (f *FunctionScoreBuilder) Weight(weight float64, filter Query) *FunctionScoreBuilder {
+	fn := map[string]any{"weight": weight}
+	if filter != nil {
+		fn["filter"] = filter
+	}
+	f.functions = append(f.functions, fn)
+	return f
+}
+
+// Decay adds a decay function: kind is "gauss", "exp", or "linear"; origin/
+// scale follow the field's type (dates: "now" / "10d"; geo: point / "2km").
+func (f *FunctionScoreBuilder) Decay(kind, field string, origin, scale any) *FunctionScoreBuilder {
+	f.functions = append(f.functions, map[string]any{kind: map[string]any{field: map[string]any{"origin": origin, "scale": scale}}})
+	return f
+}
+
+// ScoreMode sets how function results combine: "multiply" (default), "sum",
+// "avg", "first", "max", "min".
+func (f *FunctionScoreBuilder) ScoreMode(mode string) *FunctionScoreBuilder {
+	f.scoreMode = mode
+	return f
+}
+
+// BoostMode sets how the combined function score merges with the query score:
+// "multiply" (default), "replace", "sum", "avg", "max", "min".
+func (f *FunctionScoreBuilder) BoostMode(mode string) *FunctionScoreBuilder {
+	f.boostMode = mode
+	return f
+}
+
+// Build renders the function_score query.
+func (f *FunctionScoreBuilder) Build() Query {
+	body := map[string]any{}
+	if f.query != nil {
+		body["query"] = f.query
+	}
+	if len(f.functions) > 0 {
+		body["functions"] = f.functions
+	}
+	if f.scoreMode != "" {
+		body["score_mode"] = f.scoreMode
+	}
+	if f.boostMode != "" {
+		body["boost_mode"] = f.boostMode
+	}
+	return Query{"function_score": body}
+}

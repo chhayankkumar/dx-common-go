@@ -99,3 +99,63 @@ func (r *Repo[T]) BulkIndex(ctx context.Context, docs map[string]T) (BulkStats, 
 	}
 	return r.client.BulkIndexWithRetry(ctx, r.index, anyDocs, 3)
 }
+
+// ── Repo v2 — full BaseSearchRepository surface ─────────────────────────────
+
+// FindByID is Get under the repository-pattern name.
+func (r *Repo[T]) FindByID(ctx context.Context, id string) (*T, error) { return r.Get(ctx, id) }
+
+// Exists reports whether a document with id exists.
+func (r *Repo[T]) Exists(ctx context.Context, id string) (bool, error) {
+	_, err := r.Get(ctx, id)
+	if err != nil {
+		if dxIsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// Update applies a partial-document merge to id.
+func (r *Repo[T]) Update(ctx context.Context, id string, partial any) error {
+	return r.client.UpdateDoc(ctx, r.index, id, partial)
+}
+
+// Delete removes one document.
+func (r *Repo[T]) Delete(ctx context.Context, id string) error {
+	return r.client.DeleteDoc(ctx, r.index, id)
+}
+
+// Count returns the number of documents matching q (nil = all).
+func (r *Repo[T]) Count(ctx context.Context, q Query) (int64, error) {
+	return r.client.Count(ctx, r.index, q)
+}
+
+// BulkDelete removes ids via the bulk API (per-item failures in BulkStats).
+func (r *Repo[T]) BulkDelete(ctx context.Context, ids []string) (BulkStats, error) {
+	ops := make([]BulkOp, 0, len(ids))
+	for _, id := range ids {
+		ops = append(ops, DeleteOp(id))
+	}
+	return r.client.BulkDo(ctx, r.index, ops, 3)
+}
+
+// ReindexTo copies this repo's index into dst (optionally transforming with a
+// Painless script) — one leg of the alias/versioned-index rebuild.
+func (r *Repo[T]) ReindexTo(ctx context.Context, dst, script string) error {
+	return r.client.Reindex(ctx, r.index, dst, script)
+}
+
+// NewSearch starts a fluent search bound to the repo's index; decode with
+// SearchAs[T](ctx, b) for typed results.
+func (r *Repo[T]) NewSearch() *SearchBuilder {
+	return r.client.NewSearch(r.index)
+}
+
+// Client exposes the underlying client for operations the typed repo doesn't
+// wrap (aggregations, scripts, admin) — the documented escape hatch.
+func (r *Repo[T]) Client() *Client { return r.client }
+
+// Index name this repo is bound to.
+func (r *Repo[T]) IndexName() string { return r.index }

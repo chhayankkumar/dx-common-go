@@ -47,6 +47,11 @@ type Config struct {
 	MaxRetries   int  `mapstructure:"max_retries"`
 	DisableRetry bool `mapstructure:"disable_retry"`
 
+	// MaxIdleConnsPerHost sizes the HTTP keep-alive pool per node. Go's
+	// default (2) throttles concurrent ES traffic badly; services with real
+	// search volume should set 32–100. Ignored when Transport is set.
+	MaxIdleConnsPerHost int `mapstructure:"max_idle_conns_per_host"`
+
 	// EnableMetrics publishes dx_elastic_requests_total{method,status} and
 	// dx_elastic_request_duration_seconds{method} to the default Prometheus
 	// registry (served by dx-common-go/metrics.Handler).
@@ -69,25 +74,33 @@ type Config struct {
 // metrics or logging are enabled.
 func buildTransport(cfg Config) (http.RoundTripper, error) {
 	rt := cfg.Transport
-	if rt == nil && (cfg.CACertPath != "" || cfg.InsecureSkipVerify) {
+	if rt == nil && (cfg.CACertPath != "" || cfg.InsecureSkipVerify || cfg.MaxIdleConnsPerHost > 0) {
 		base, ok := http.DefaultTransport.(*http.Transport)
 		if !ok {
-			return nil, errors.New("elastic config: default transport unavailable for TLS configuration")
+			return nil, errors.New("elastic config: default transport unavailable for TLS/pool configuration")
 		}
 		t := base.Clone()
-		tlsCfg := &tls.Config{InsecureSkipVerify: cfg.InsecureSkipVerify} // #nosec G402 — explicit dev-only opt-in
-		if cfg.CACertPath != "" {
-			pem, err := os.ReadFile(cfg.CACertPath)
-			if err != nil {
-				return nil, fmt.Errorf("elastic config: read ca_cert_path: %w", err)
+		if cfg.MaxIdleConnsPerHost > 0 {
+			t.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
+			if t.MaxIdleConns < cfg.MaxIdleConnsPerHost {
+				t.MaxIdleConns = cfg.MaxIdleConnsPerHost
 			}
-			pool := x509.NewCertPool()
-			if !pool.AppendCertsFromPEM(pem) {
-				return nil, errors.New("elastic config: ca_cert_path contains no valid PEM certificates")
-			}
-			tlsCfg.RootCAs = pool
 		}
-		t.TLSClientConfig = tlsCfg
+		if cfg.CACertPath != "" || cfg.InsecureSkipVerify {
+			tlsCfg := &tls.Config{InsecureSkipVerify: cfg.InsecureSkipVerify} // #nosec G402 — explicit dev-only opt-in
+			if cfg.CACertPath != "" {
+				pem, err := os.ReadFile(cfg.CACertPath)
+				if err != nil {
+					return nil, fmt.Errorf("elastic config: read ca_cert_path: %w", err)
+				}
+				pool := x509.NewCertPool()
+				if !pool.AppendCertsFromPEM(pem) {
+					return nil, errors.New("elastic config: ca_cert_path contains no valid PEM certificates")
+				}
+				tlsCfg.RootCAs = pool
+			}
+			t.TLSClientConfig = tlsCfg
+		}
 		rt = t
 	}
 	if cfg.EnableMetrics || cfg.Logger != nil {
