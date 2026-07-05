@@ -32,6 +32,7 @@ type Finder[T any] struct {
 	columns    []string
 	groupBy    []string
 	having     []query.Condition
+	distinct   bool
 }
 
 // Query starts a fluent criteria query on the DAO's table.
@@ -97,6 +98,17 @@ func (f *Finder[T]) Select(cols ...string) *Finder[T] {
 	return f
 }
 
+// Distinct emits SELECT DISTINCT, deduplicating rows across the selected
+// columns (or all columns when Select is not used). Applies to Find/One/Page;
+// Count/Exists keep their scalar COUNT(*)/existence semantics unchanged. Pair
+// with Select to dedupe on a projection, e.g.
+//
+//	dao.Query().Select("consumer_id").Distinct().Find(ctx)
+func (f *Finder[T]) Distinct() *Finder[T] {
+	f.distinct = true
+	return f
+}
+
 // GroupBy appends columns/expressions to a GROUP BY clause — combine with
 // Select to list the grouped columns plus aggregate expressions (e.g.
 // "COUNT(*) AS total"). Emitted verbatim — same trust boundary as
@@ -132,6 +144,7 @@ func (f *Finder[T]) selectColumns() []string {
 func (f *Finder[T]) Find(ctx context.Context) ([]T, error) {
 	q := query.SelectQuery{
 		Table:      f.dao.TableName,
+		Distinct:   f.distinct,
 		Columns:    f.selectColumns(),
 		Joins:      f.joins,
 		Conditions: f.dao.withSoftDeleteFilter(f.conditions),
@@ -150,6 +163,7 @@ func (f *Finder[T]) Find(ctx context.Context) ([]T, error) {
 func (f *Finder[T]) One(ctx context.Context) (*T, error) {
 	q := query.SelectQuery{
 		Table:      f.dao.TableName,
+		Distinct:   f.distinct,
 		Columns:    f.selectColumns(),
 		Joins:      f.joins,
 		Conditions: f.dao.withSoftDeleteFilter(f.conditions),
@@ -208,7 +222,7 @@ func (f *Finder[T]) Exists(ctx context.Context) (bool, error) {
 // Page executes the query as one page plus the total match count.
 // Limit defaults per FindPage when unset.
 func (f *Finder[T]) Page(ctx context.Context) (*Page[T], error) {
-	if len(f.joins) == 0 && len(f.columns) == 0 && len(f.groupBy) == 0 && len(f.having) == 0 {
+	if !f.distinct && len(f.joins) == 0 && len(f.columns) == 0 && len(f.groupBy) == 0 && len(f.having) == 0 {
 		return f.dao.FindPage(ctx, f.conditions, f.orderBy, f.limit, f.offset)
 	}
 
@@ -229,6 +243,7 @@ func (f *Finder[T]) Page(ctx context.Context) (*Page[T], error) {
 	if total > int64(offset) {
 		q := query.SelectQuery{
 			Table:      f.dao.TableName,
+			Distinct:   f.distinct,
 			Columns:    f.selectColumns(),
 			Joins:      f.joins,
 			Conditions: f.dao.withSoftDeleteFilter(f.conditions),

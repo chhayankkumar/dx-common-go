@@ -29,7 +29,11 @@ func (b *SQLBuilder) BuildSelect(q SelectQuery) (string, []any) {
 	if len(q.Columns) > 0 {
 		cols = strings.Join(q.Columns, ", ")
 	}
-	fmt.Fprintf(&sb, "SELECT %s FROM %s", cols, q.Table)
+	selectKw := "SELECT"
+	if q.Distinct {
+		selectKw = "SELECT DISTINCT"
+	}
+	fmt.Fprintf(&sb, "%s %s FROM %s", selectKw, cols, q.Table)
 
 	for _, j := range q.Joins {
 		fmt.Fprintf(&sb, " %s JOIN %s ON %s", j.Type, j.Table, j.On)

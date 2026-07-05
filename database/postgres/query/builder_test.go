@@ -153,3 +153,32 @@ func TestBuildUpsert(t *testing.T) {
 		t.Fatalf("expected 2 args, got %d", len(args))
 	}
 }
+
+func TestBuildSelect_Distinct(t *testing.T) {
+	t.Run("distinct with explicit columns", func(t *testing.T) {
+		sql, _ := New().BuildSelect(SelectQuery{
+			Table:    "policy",
+			Distinct: true,
+			Columns:  []string{"consumer_id"},
+		})
+		want := "SELECT DISTINCT consumer_id FROM policy"
+		if sql != want {
+			t.Fatalf("sql mismatch:\n got: %s\nwant: %s", sql, want)
+		}
+	})
+
+	t.Run("distinct star", func(t *testing.T) {
+		sql, _ := New().BuildSelect(SelectQuery{Table: "policy", Distinct: true})
+		want := "SELECT DISTINCT * FROM policy"
+		if sql != want {
+			t.Fatalf("sql mismatch:\n got: %s\nwant: %s", sql, want)
+		}
+	})
+
+	t.Run("not distinct by default", func(t *testing.T) {
+		sql, _ := New().BuildSelect(SelectQuery{Table: "policy"})
+		if sql != "SELECT * FROM policy" {
+			t.Fatalf("unexpected sql: %s", sql)
+		}
+	})
+}

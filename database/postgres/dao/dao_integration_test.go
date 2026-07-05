@@ -592,3 +592,88 @@ func TestBaseDAO_Select_And_SelectOne_RawSQLEscapeHatch(t *testing.T) {
 		t.Fatalf("SelectOne: %+v, err=%v", one, err)
 	}
 }
+
+func TestCountBy_GroupsByColumn(t *testing.T) {
+	ctx := context.Background()
+	tx := beginTx(t, ctx, testPool(t))
+	d := dao.NewBaseDAO[testWidget](tx, "widgets")
+
+	seed := []struct {
+		id, status string
+	}{
+		{"w-cb-1", "ACTIVE"},
+		{"w-cb-2", "ACTIVE"},
+		{"w-cb-3", "PENDING"},
+	}
+	for _, s := range seed {
+		if _, err := d.InsertMap(ctx, map[string]any{"id": s.id, "name": s.id, "status": s.status, "quantity": 1}); err != nil {
+			t.Fatalf("seed %s: %v", s.id, err)
+		}
+	}
+
+	counts, err := dao.CountBy[string](ctx, d, "status", query.In("id", []string{"w-cb-1", "w-cb-2", "w-cb-3"}))
+	if err != nil {
+		t.Fatalf("CountBy: %v", err)
+	}
+	if counts["ACTIVE"] != 2 || counts["PENDING"] != 1 {
+		t.Fatalf("unexpected grouped counts: %+v", counts)
+	}
+}
+
+func TestCountBy_HonorsSoftDeleteScope(t *testing.T) {
+	ctx := context.Background()
+	tx := beginTx(t, ctx, testPool(t))
+	d := dao.NewBaseDAOWith[testWidget](tx, "widgets", dao.WithSoftDeleteFilter[testWidget]("status"))
+
+	for _, id := range []string{"w-cbsd-1", "w-cbsd-2"} {
+		if _, err := d.InsertMap(ctx, map[string]any{"id": id, "name": id, "quantity": 1}); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+	if err := d.SoftDelete(ctx, "w-cbsd-2"); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	counts, err := dao.CountBy[string](ctx, d, "name", query.In("id", []string{"w-cbsd-1", "w-cbsd-2"}))
+	if err != nil {
+		t.Fatalf("CountBy: %v", err)
+	}
+	if counts["w-cbsd-1"] != 1 {
+		t.Fatalf("expected the active row counted, got %+v", counts)
+	}
+	if _, ok := counts["w-cbsd-2"]; ok {
+		t.Fatalf("soft-deleted row must be excluded, got %+v", counts)
+	}
+}
+
+func TestFinder_Distinct(t *testing.T) {
+	ctx := context.Background()
+	tx := beginTx(t, ctx, testPool(t))
+	d := dao.NewBaseDAO[testWidget](tx, "widgets")
+
+	seed := []struct {
+		id, status string
+	}{
+		{"w-di-1", "ACTIVE"},
+		{"w-di-2", "ACTIVE"},
+		{"w-di-3", "PENDING"},
+	}
+	for _, s := range seed {
+		if _, err := d.InsertMap(ctx, map[string]any{"id": s.id, "name": s.id, "status": s.status, "quantity": 1}); err != nil {
+			t.Fatalf("seed %s: %v", s.id, err)
+		}
+	}
+
+	rows, err := d.Query().
+		Select("status").
+		Distinct().
+		Where(query.In("id", []string{"w-di-1", "w-di-2", "w-di-3"})).
+		OrderBy("status").
+		Find(ctx)
+	if err != nil {
+		t.Fatalf("Distinct Find: %v", err)
+	}
+	if len(rows) != 2 || rows[0].Status != "ACTIVE" || rows[1].Status != "PENDING" {
+		t.Fatalf("expected 2 distinct statuses [ACTIVE PENDING], got %+v", rows)
+	}
+}

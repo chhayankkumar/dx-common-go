@@ -2,7 +2,10 @@ package query
 
 // SelectQuery describes a SELECT statement.
 type SelectQuery struct {
-	Table      string
+	Table string
+	// Distinct emits SELECT DISTINCT, deduplicating rows across the selected
+	// Columns (or all columns when Columns is empty).
+	Distinct   bool
 	Columns    []string // empty means "*"
 	Joins      []Join
 	Conditions []Condition

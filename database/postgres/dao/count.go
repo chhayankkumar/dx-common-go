@@ -45,6 +45,49 @@ func (d *BaseDAO[T]) FindPage(ctx context.Context, conditions []query.Condition,
 	return page, nil
 }
 
+// CountBy groups rows by column and returns the row count for each distinct
+// value — the grouped-count aggregate services otherwise hand-roll (e.g. "how
+// many requests per status"). It honors d's soft-delete scope and transaction
+// binding.
+//
+// K must match the column's scanned Go type (string for text/enum columns,
+// int64 for integers, and so on); a mismatch surfaces as a scan error. column
+// is emitted verbatim into the SELECT and GROUP BY — supply a code-authored
+// identifier, never raw user input.
+//
+// It is a package-level function rather than a BaseDAO method because the key
+// type K is independent of the DAO's row type T, and Go methods cannot declare
+// their own type parameters.
+func CountBy[K comparable, T any](ctx context.Context, d *BaseDAO[T], column string, conditions ...query.Condition) (map[K]int64, error) {
+	q := query.SelectQuery{
+		Table:      d.TableName,
+		Columns:    []string{column, "COUNT(*) AS count"},
+		Conditions: d.withSoftDeleteFilter(conditions),
+		GroupBy:    []string{column},
+	}
+	sql, args := d.builder.BuildSelect(q)
+
+	rows, err := d.DB.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, MapPgError(err)
+	}
+	defer rows.Close()
+
+	result := make(map[K]int64)
+	for rows.Next() {
+		var key K
+		var count int64
+		if err := rows.Scan(&key, &count); err != nil {
+			return nil, MapPgError(err)
+		}
+		result[key] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, MapPgError(err)
+	}
+	return result, nil
+}
+
 // Count returns the number of rows matching conditions.
 func (d *BaseDAO[T]) Count(ctx context.Context, conditions []query.Condition) (int64, error) {
 	q := query.SelectQuery{
