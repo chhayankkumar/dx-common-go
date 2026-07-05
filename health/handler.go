@@ -17,9 +17,9 @@ type ServiceStatus struct {
 
 // HealthStatus represents the overall health status
 type HealthStatus struct {
-	Status   string           `json:"status"` // "healthy", "degraded", "unhealthy"
-	Timestamp time.Time        `json:"timestamp"`
-	Services []ServiceStatus  `json:"services"`
+	Status    string          `json:"status"` // "healthy", "degraded", "unhealthy"
+	Timestamp time.Time       `json:"timestamp"`
+	Services  []ServiceStatus `json:"services"`
 }
 
 // Checker defines the interface for health checkers
