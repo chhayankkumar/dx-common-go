@@ -15,6 +15,32 @@ import (
 	"github.com/datakaveri/dx-common-go/dxtest/containers"
 )
 
+// TestNewPool_AppliesSearchPath proves the app connection's active schema is
+// config-driven: Config.SearchPath is applied to every pooled connection, so
+// current_schema() reflects it — the same value the migration runner uses.
+func TestNewPool_AppliesSearchPath(t *testing.T) {
+	h := containers.Postgres(t)
+	ctx := context.Background()
+	if _, err := h.Pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS cfg_sp_pool"); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() { h.Pool.Exec(ctx, "DROP SCHEMA IF EXISTS cfg_sp_pool CASCADE") })
+
+	pool, err := dxclient.NewPool(dxclient.Config{DSN: h.DSN, SearchPath: "cfg_sp_pool,public"})
+	if err != nil {
+		t.Fatalf("NewPool with SearchPath: %v", err)
+	}
+	defer pool.Close()
+
+	var got string
+	if err := pool.QueryRow(ctx, "SELECT current_schema()").Scan(&got); err != nil {
+		t.Fatalf("current_schema: %v", err)
+	}
+	if got != "cfg_sp_pool" {
+		t.Fatalf("current_schema() = %q, want cfg_sp_pool — SearchPath not applied to the pool", got)
+	}
+}
+
 func TestNewPool_ConnectsAndPings(t *testing.T) {
 	h := containers.Postgres(t)
 

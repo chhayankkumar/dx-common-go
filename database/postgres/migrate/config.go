@@ -25,6 +25,14 @@ type Config struct {
 	// multiple services can share one interim database without colliding
 	// version tracking. See doc.go.
 	TableName string
+	// SearchPath, when set, is applied as the migration connection's
+	// search_path runtime parameter (e.g. "public"). Pass the SAME value the
+	// application pool uses (client.Config.SearchPath) so migrations run
+	// against — and the history table lands in — the same schema the app
+	// reads. Migrations themselves stay schema-agnostic (no SET search_path,
+	// no schema-qualified names); the active schema is decided here, by
+	// config, alone. Empty leaves the server/DSN default untouched.
+	SearchPath string
 }
 
 // DirtyStateError reports that the migrations table is marked dirty: a

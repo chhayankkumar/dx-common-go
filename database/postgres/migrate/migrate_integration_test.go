@@ -41,6 +41,36 @@ func TestRun_AppliesAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestRun_SearchPathDirectsSchema proves the active schema is entirely
+// config-driven: with Config.SearchPath set, the migration connection (and so
+// the history table it creates) lands in that schema — no SET search_path in
+// any migration file. Changing schema is a config change alone.
+func TestRun_SearchPathDirectsSchema(t *testing.T) {
+	h := containers.Postgres(t)
+	ctx := context.Background()
+	const schema = "cfg_sp"
+	if _, err := h.Pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	table := tableName(t)
+	t.Cleanup(func() { h.Pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+
+	cfg := dxmigrate.Config{Mode: dxmigrate.ModeMigrate, DSN: h.DSN, TableName: table, SearchPath: schema}
+	if err := dxmigrate.Run(cfg, testFS, "testdata", nil); err != nil {
+		t.Fatalf("Run with SearchPath: %v", err)
+	}
+
+	// The history table must exist in the configured schema, not public.
+	var got string
+	if err := h.Pool.QueryRow(ctx,
+		"SELECT schemaname FROM pg_tables WHERE tablename = $1", table).Scan(&got); err != nil {
+		t.Fatalf("locate history table: %v", err)
+	}
+	if got != schema {
+		t.Fatalf("history table in schema %q, want %q — SearchPath did not drive the schema", got, schema)
+	}
+}
+
 func TestStatus_ReportsVersionAndDirty(t *testing.T) {
 	h := containers.Postgres(t)
 	table := tableName(t)

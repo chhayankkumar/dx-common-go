@@ -35,6 +35,16 @@ func NewPool(cfg Config, opts ...PoolOption) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("client.NewPool: parsing DSN: %w", err)
 	}
 
+	// The active schema is entirely config-driven: set search_path as a
+	// connection runtime parameter so every pooled connection uses it, rather
+	// than any code or migration hardcoding a schema.
+	if cfg.SearchPath != "" {
+		if poolCfg.ConnConfig.RuntimeParams == nil {
+			poolCfg.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		poolCfg.ConnConfig.RuntimeParams["search_path"] = cfg.SearchPath
+	}
+
 	if cfg.MaxConns > 0 {
 		poolCfg.MaxConns = cfg.MaxConns
 	}

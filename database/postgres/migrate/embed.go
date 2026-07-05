@@ -1,7 +1,6 @@
 package migrate
 
 import (
-	"database/sql"
 	"fmt"
 	"io/fs"
 
@@ -9,7 +8,8 @@ import (
 	pgxdriver "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
-	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver used below
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // open wires an embedded migration directory (fsys/dir, via golang-migrate's
@@ -21,10 +21,20 @@ func open(cfg Config, fsys fs.FS, dir string) (*migrate.Migrate, func(), error) 
 		return nil, nil, fmt.Errorf("migrate: open source %q: %w", dir, err)
 	}
 
-	db, err := sql.Open("pgx", cfg.DSN)
+	// Apply the config-driven search_path to the migration connection so
+	// schema-agnostic migrations run against the same schema the application
+	// pool uses (client.Config.SearchPath). The history table lands there too.
+	connCfg, err := pgx.ParseConfig(cfg.DSN)
 	if err != nil {
-		return nil, nil, fmt.Errorf("migrate: open db: %w", err)
+		return nil, nil, fmt.Errorf("migrate: parse DSN: %w", err)
 	}
+	if cfg.SearchPath != "" {
+		if connCfg.RuntimeParams == nil {
+			connCfg.RuntimeParams = map[string]string{}
+		}
+		connCfg.RuntimeParams["search_path"] = cfg.SearchPath
+	}
+	db := stdlib.OpenDB(*connCfg)
 
 	dbDriver, err := pgxdriver.WithInstance(db, &pgxdriver.Config{MigrationsTable: cfg.TableName})
 	if err != nil {

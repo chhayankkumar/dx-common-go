@@ -16,6 +16,14 @@
 //     gates this: ModeMigrate applies pending migrations; ModeNone is a no-op
 //     for environments where the schema is provisioned out-of-band.
 //
+//   - Schema-agnostic migrations; config-driven search_path. Migration files
+//     never contain SET search_path or schema-qualified names — they use bare
+//     identifiers and land in whatever schema the connection's search_path
+//     selects. The active schema is decided by configuration alone:
+//     Config.SearchPath here and client.Config.SearchPath on the app pool,
+//     set to the SAME value, so migrations and the application always agree.
+//     Changing schema is a config change, never a migration edit.
+//
 //   - Per-service migrations table. Multiple services share the interim
 //     iudx_db, so each Run call passes its own history table via
 //     Config.TableName (schema_migrations_<service>) — the equivalent of

@@ -15,4 +15,11 @@ type Config struct {
 	MinConns        int32         `mapstructure:"min_conns"`
 	MaxConnLifetime time.Duration `mapstructure:"max_conn_lifetime"`
 	ConnectTimeout  time.Duration `mapstructure:"connect_timeout"`
+	// SearchPath, when set, is applied as the connection's search_path
+	// runtime parameter on every pooled connection (e.g. "public" or
+	// "tenant,public"). It is the single, config-driven source of the active
+	// schema — the same value is passed to the migration runner, so
+	// application and migrations always agree. Empty leaves the server/DSN
+	// default untouched. Never hardcode a schema anywhere else.
+	SearchPath string `mapstructure:"search_path"`
 }
