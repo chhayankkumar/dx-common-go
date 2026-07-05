@@ -177,6 +177,12 @@ func (r *ConsumerRunner) runOnce(ctx context.Context, handler Handler) error {
 }
 
 func (r *ConsumerRunner) dispatch(ctx context.Context, d Delivery, handler Handler) {
+	// Continue the publisher's trace: extract its context from the delivery
+	// headers and open a consumer span the handler runs under. A no-op until
+	// observability.Init configures a TracerProvider and propagator.
+	ctx, span := startConsumerSpan(ctx, d)
+	defer span.End()
+
 	if r.cfg.Dedup != nil && r.cfg.Dedup.Seen(d.MessageId) {
 		r.logger.Info("duplicate delivery, acking without reprocessing", zap.String("messageId", d.MessageId))
 		if err := d.Ack(false); err != nil {

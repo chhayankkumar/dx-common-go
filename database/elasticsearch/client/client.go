@@ -37,7 +37,8 @@ type Client struct {
 // Transport wins; otherwise a TLS-configured clone of the default transport
 // is built when CACertPath / InsecureSkipVerify / MaxIdleConnsPerHost demand
 // one. The result (or nil, meaning "library default") is then wrapped with
-// observability when metrics or logging are enabled.
+// observability: metrics/logging when enabled, then OTel tracing outermost
+// when EnableTracing is set.
 func buildTransport(cfg Config) (http.RoundTripper, error) {
 	rt := cfg.Transport
 	if rt == nil && (cfg.CACertPath != "" || cfg.InsecureSkipVerify || cfg.MaxIdleConnsPerHost > 0) {
@@ -74,6 +75,14 @@ func buildTransport(cfg Config) (http.RoundTripper, error) {
 			rt = http.DefaultTransport
 		}
 		rt = newObservedTransport(rt, cfg.Logger, cfg.EnableMetrics)
+	}
+	// Tracing wraps outermost so the client span spans the whole request,
+	// including the metrics/logging middleware and the actual network call.
+	if cfg.EnableTracing {
+		if rt == nil {
+			rt = http.DefaultTransport
+		}
+		rt = newTracedTransport(rt)
 	}
 	return rt, nil
 }

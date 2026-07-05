@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // newTestClient spins up a fake Elasticsearch on httptest and returns a Client
@@ -104,5 +106,50 @@ func TestTransportInjectionMock(t *testing.T) {
 	status, err := c.ClusterHealth(context.Background())
 	if err != nil || status != "green" {
 		t.Fatalf("mocked ClusterHealth = (%q, %v), want (green, nil)", status, err)
+	}
+}
+
+func TestBuildTransportTracing(t *testing.T) {
+	tests := []struct {
+		name          string
+		cfg           Config
+		wantOTelWrap  bool
+		wantNilResult bool
+	}{
+		{
+			name:          "no observability leaves transport at library default",
+			cfg:           Config{},
+			wantNilResult: true,
+		},
+		{
+			name:         "tracing alone wraps with otelhttp",
+			cfg:          Config{EnableTracing: true},
+			wantOTelWrap: true,
+		},
+		{
+			name:         "tracing wraps outermost over metrics",
+			cfg:          Config{EnableTracing: true, EnableMetrics: true},
+			wantOTelWrap: true,
+		},
+		{
+			name:         "tracing wraps even an explicit transport",
+			cfg:          Config{EnableTracing: true, Transport: http.DefaultTransport},
+			wantOTelWrap: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rt, err := buildTransport(tt.cfg)
+			if err != nil {
+				t.Fatalf("buildTransport: %v", err)
+			}
+			if tt.wantNilResult && rt != nil {
+				t.Fatalf("want nil (library default) transport, got %T", rt)
+			}
+			_, isOTel := rt.(*otelhttp.Transport)
+			if isOTel != tt.wantOTelWrap {
+				t.Fatalf("otelhttp wrap = %v, want %v (type %T)", isOTel, tt.wantOTelWrap, rt)
+			}
+		})
 	}
 }

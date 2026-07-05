@@ -43,6 +43,15 @@ type Config struct {
 	// registry (served by dx-common-go/metrics.Handler).
 	EnableMetrics bool `mapstructure:"enable_metrics"`
 
+	// EnableTracing wraps the effective transport with OpenTelemetry
+	// instrumentation (otelhttp): one client span per request, and outbound
+	// trace-context propagation to the cluster. It reads the TracerProvider
+	// and propagator that observability.Init configured, and is a no-op when
+	// no provider is set, so it is safe to leave on. Like EnableMetrics, it
+	// applies even when Transport is set (only the TLS fields are ignored
+	// then) — the wrap is outermost, over any explicit transport.
+	EnableTracing bool `mapstructure:"enable_tracing"`
+
 	// Logger, when set, logs each request at Debug and failures at Warn.
 	// Runtime-only — not loadable from config files.
 	Logger *zap.Logger `mapstructure:"-"`

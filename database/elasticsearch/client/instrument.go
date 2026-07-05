@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 )
 
@@ -49,6 +50,15 @@ func newObservedTransport(next http.RoundTripper, logger *zap.Logger, metrics bo
 		registerMetrics()
 	}
 	return &observedTransport{next: next, logger: logger, metrics: metrics}
+}
+
+// newTracedTransport wraps next with OpenTelemetry HTTP-client instrumentation.
+// It is the second half of the module's instrumentation seam (metrics/logging
+// being the first): the returned transport starts a client span per request
+// and injects trace-context headers, reading from OTel's global TracerProvider
+// and propagator — a no-op until observability.Init configures them.
+func newTracedTransport(next http.RoundTripper) http.RoundTripper {
+	return otelhttp.NewTransport(next)
 }
 
 func (o *observedTransport) RoundTrip(req *http.Request) (*http.Response, error) {

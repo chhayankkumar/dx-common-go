@@ -67,15 +67,32 @@ type PublishOptions struct {
 
 // Publish sends body to exchange/routingKey, redialing and retrying once if
 // the channel was closed. An empty exchange publishes to the default exchange.
+// It starts a producer span and stamps W3C trace-context headers onto the
+// message so a consumer can continue the trace (a no-op until observability.Init
+// configures a TracerProvider and propagator).
 func (p *ReliablePublisher) Publish(ctx context.Context, exchange, routingKey string, body []byte, opts PublishOptions) error {
+	ctx, span := startProducerSpan(ctx, exchange, routingKey)
+	defer span.End()
+
+	headers := amqp.Table{}
+	injectTraceContext(ctx, headers)
 	pub := amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Timestamp:    time.Now().UTC(),
 		MessageId:    opts.MessageID,
+		Headers:      headers,
 		Body:         body,
 	}
 
+	err := p.publishWithRetry(ctx, exchange, routingKey, pub)
+	recordSpanError(span, err)
+	return err
+}
+
+// publishWithRetry performs one publish, redialing and retrying exactly once
+// when the channel was found closed.
+func (p *ReliablePublisher) publishWithRetry(ctx context.Context, exchange, routingKey string, pub amqp.Publishing) error {
 	if err := p.publishOnce(ctx, exchange, routingKey, pub); err != nil {
 		if errors.Is(err, amqp.ErrClosed) || isChannelClosedErr(err) {
 			p.logger.Warn("publish channel closed, redialling", zap.Error(err))

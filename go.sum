@@ -217,6 +217,10 @@ github.com/prometheus/procfs v0.15.1 h1:YagwOFzUgYfKKHX6Dr+sHT7km/hxC76UB0leargg
 github.com/prometheus/procfs v0.15.1/go.mod h1:fB45yRUv8NstnjriLhBQLuOUt+WW4BsoGhij/e3PBqk=
 github.com/rabbitmq/amqp091-go v1.10.0 h1:STpn5XsHlHGcecLmMFCtg7mqq0RnD+zFr4uzukfVhBw=
 github.com/rabbitmq/amqp091-go v1.10.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
+github.com/redis/go-redis/extra/rediscmd/v9 v9.7.3 h1:1AXQZkJkFxGV3f78mSnUI70l0orO6FHnYoSmBos8SZM=
+github.com/redis/go-redis/extra/rediscmd/v9 v9.7.3/go.mod h1:OgkpkwJYex1oyVAabK+VhVUKhUXw8uZUfewJYH1wG90=
+github.com/redis/go-redis/extra/redisotel/v9 v9.7.3 h1:ICBA9xYh+SmZqMfBtjKpp1ohi/V5R1TEZglLZc8IxTc=
+github.com/redis/go-redis/extra/redisotel/v9 v9.7.3/go.mod h1:DMzxd0CDyZ9VFw9sEPIVpIgKTAaubfGuaPQSUaS7/fo=
 github.com/redis/go-redis/v9 v9.7.3 h1:YpPyAayJV+XErNsatSElgRZZVCwXX9QzkKYNvO7x0wM=
 github.com/redis/go-redis/v9 v9.7.3/go.mod h1:bGUrSggJ9X9GUmZpZNEOQKaANxSGgOEBRltRTZHSvrA=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=

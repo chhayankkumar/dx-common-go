@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -26,10 +27,18 @@ func NewClient(cfg Config) (*Client, error) {
 
 	rdb := goredis.NewClient(opts)
 
+	if cfg.EnableTracing {
+		if err := redisotel.InstrumentTracing(rdb); err != nil {
+			rdb.Close()
+			return nil, fmt.Errorf("redis.NewClient: instrument tracing: %w", err)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
+		rdb.Close()
 		return nil, fmt.Errorf("redis.NewClient: ping failed: %w", err)
 	}
 

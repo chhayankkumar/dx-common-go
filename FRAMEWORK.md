@@ -128,6 +128,21 @@ engine in the framework.
 breaker to any outbound dependency to fail fast when it is down. One `Policy` type drives
 `Retry`, `NewHTTPClient`, and the gRPC interceptor — don't hand-roll backoff loops.
 
+**Distributed tracing:** `observability.Init` owns the SDK; every signal is wired at its
+driver seam and is a no-op until `Init` runs — enable them unconditionally.
+
+| Signal | Seam | How to enable |
+|---|---|---|
+| HTTP in | `otelhttp` middleware | `middleware.Standard(log, t, middleware.WithTracing())` |
+| Postgres (DSL/sqlc/raw) | pgx `MultiTracer` + `otelpgx` | `client.NewPool(cfg, client.WithTracers(...))` |
+| Elasticsearch | `Transport` wrap (`otelhttp`) | `client.Config.EnableTracing = true` |
+| Redis | `redisotel.InstrumentTracing` | `redis.Config.EnableTracing = true` |
+| RabbitMQ | W3C traceparent on message headers | automatic — `ReliablePublisher` injects, `ConsumerRunner` extracts |
+
+AMQP has no upstream OTel instrumentation, so the framework carries a minimal producer/consumer
+span + traceparent propagation (`messaging/rabbitmq/otel.go`); no config knob, no cost when
+tracing is off.
+
 ---
 
 ## 5. Adopting the framework in a new service
