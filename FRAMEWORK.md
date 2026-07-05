@@ -162,6 +162,11 @@ r := chi.NewRouter(); r.Use(middleware.StandardStack(...)) // middleware
 Adoption rule: before writing any infrastructure in a service, check here; **>~30 lines of
 generic infra in a service is a PR to `dx-common-go` instead.**
 
+The full, compiling reference wiring (config → observability → migrations → pool+tracers →
+repository → outbox+scheduler → `middleware.Standard(WithTracing())` → health → serve) lives in
+[`examples/minimal-service`](examples/minimal-service) — a separate module CI builds so the
+template can't rot. Copy-and-rename it to start a service.
+
 ---
 
 ## 6. Testing
