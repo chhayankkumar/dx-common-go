@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	defaultLimit = 10
-	maxLimit     = 100
+	defaultLimit  = 10
+	maxLimit      = 100
 	defaultOffset = 0
 )
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/datakaveri/dx-common-go/database/elasticsearch/client"
+	"github.com/datakaveri/dx-common-go/resilience"
 )
 
 // BulkStats summarizes a bulk indexing call: how many documents succeeded,
@@ -90,25 +91,28 @@ func BulkDo(ctx context.Context, c *client.Client, index string, ops []BulkOp, m
 	}
 	payload := body.String()
 
-	var lastErr error
-	delay := 100 * time.Millisecond
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		raw, err := c.DoNDJSON(ctx, "/_bulk", payload)
-		if err == nil {
-			return parseBulkResponse(raw)
-		}
-		lastErr = err
-		if attempt == maxAttempts {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return BulkStats{}, ctx.Err()
-		case <-time.After(delay):
-		}
-		delay *= 2
+	// Retry the whole batch on transport-level failure (no response), with
+	// backoff, via the shared resilience engine. Per-item failures are not
+	// errors here — they come back in BulkStats — so a successful DoNDJSON ends
+	// the retry and parseBulkResponse runs once.
+	var raw json.RawMessage
+	err := resilience.Retry(ctx,
+		resilience.NewPolicy(
+			resilience.WithMaxAttempts(maxAttempts),
+			resilience.WithBaseDelay(100*time.Millisecond),
+		),
+		func(ctx context.Context) error {
+			r, e := c.DoNDJSON(ctx, "/_bulk", payload)
+			if e != nil {
+				return e
+			}
+			raw = r
+			return nil
+		})
+	if err != nil {
+		return BulkStats{}, fmt.Errorf("elastic: bulk failed after %d attempts: %w", maxAttempts, err)
 	}
-	return BulkStats{}, fmt.Errorf("elastic: bulk failed after %d attempts: %w", maxAttempts, lastErr)
+	return parseBulkResponse(raw)
 }
 
 // BulkIndexWithRetry indexes docs (id → document) via the bulk API — the

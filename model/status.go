@@ -26,10 +26,10 @@ func (s RequestStatus) String() string { return string(s) }
 type ItemType string
 
 const (
-	ItemTypeDatabank       ItemType = "DATABANK"
-	ItemTypeAIModel        ItemType = "AIMODEL"
-	ItemTypeApps           ItemType = "APPS"
-	ItemTypeResourceGroup  ItemType = "RESOURCE_GROUP"
+	ItemTypeDatabank      ItemType = "DATABANK"
+	ItemTypeAIModel       ItemType = "AIMODEL"
+	ItemTypeApps          ItemType = "APPS"
+	ItemTypeResourceGroup ItemType = "RESOURCE_GROUP"
 )
 
 // IsValid returns true if t is one of the defined ItemType constants.
