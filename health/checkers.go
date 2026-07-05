@@ -126,6 +126,40 @@ func (rc *RabbitMQChecker) Check(ctx context.Context) ServiceStatus {
 	return ServiceStatus{Name: "rabbitmq", Status: "healthy", Duration: time.Since(start)}
 }
 
+// objectStorePinger is anything that can verify object-store reachability —
+// e.g. *storage/s3.Client via its HealthCheck. Defined here (at the consumer)
+// so health need not import the storage packages.
+type objectStorePinger interface {
+	HealthCheck(ctx context.Context) error
+}
+
+// ObjectStoreChecker checks an S3-compatible object store's reachability.
+type ObjectStoreChecker struct {
+	name  string
+	store objectStorePinger
+}
+
+// NewObjectStoreChecker creates a checker backed by anything exposing
+// HealthCheck(ctx) error — e.g. *storage/s3.Client. name labels the dependency
+// (e.g. "s3" or "minio").
+func NewObjectStoreChecker(name string, store objectStorePinger) *ObjectStoreChecker {
+	return &ObjectStoreChecker{name: name, store: store}
+}
+
+// Check reports unhealthy when the object store is unreachable.
+func (oc *ObjectStoreChecker) Check(ctx context.Context) ServiceStatus {
+	start := time.Now()
+	if err := oc.store.HealthCheck(ctx); err != nil {
+		return ServiceStatus{
+			Name:     oc.name,
+			Status:   "unhealthy",
+			Message:  err.Error(),
+			Duration: time.Since(start),
+		}
+	}
+	return ServiceStatus{Name: oc.name, Status: "healthy", Duration: time.Since(start)}
+}
+
 // CustomChecker is a simple checker with a custom check function
 type CustomChecker struct {
 	name  string
