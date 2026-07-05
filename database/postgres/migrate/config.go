@@ -4,8 +4,8 @@ import "fmt"
 
 // Mode values for Config.Mode.
 const (
-	// ModeNone is a no-op. Use it while a service's tables are still
-	// Flyway-owned (the legacy-baseline interim state) — see doc.go.
+	// ModeNone is a no-op. Use it in environments where the schema is
+	// provisioned out-of-band rather than by this service — see doc.go.
 	ModeNone = "none"
 	// ModeMigrate runs every pending migration up to the latest version.
 	ModeMigrate = "migrate"

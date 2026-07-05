@@ -5,14 +5,16 @@
 //   - SQL-first paired files, embedded in the service binary via embed.FS:
 //     migrations/0001_title.up.sql
 //     migrations/0001_title.down.sql
-//     Zero-padded sequential versions (Flyway-style), not timestamps, so
-//     ordering is reviewable in a diff.
+//     Zero-padded sequential versions, not timestamps, so ordering is
+//     reviewable in a diff.
 //
-//   - Legacy tables stay Flyway's. The interim state (before a service gets
-//     its own database) is: legacy tables are read/written by Go but never
-//     created or altered by Go — call Run with Config.Mode=ModeNone for
-//     those. ModeMigrate is only for a service's own net-new tables (e.g.
-//     acl's policy_outbox, an audit dedup index).
+//   - The Go migration system owns the schema. The schema that exists today
+//     is the platform's baseline, captured as each service's migration 0001,
+//     written idempotently (CREATE TABLE IF NOT EXISTS, ...) so it is a no-op
+//     against an existing database and creates from scratch on a greenfield
+//     one. Every change from there is a new versioned migration. Config.Mode
+//     gates this: ModeMigrate applies pending migrations; ModeNone is a no-op
+//     for environments where the schema is provisioned out-of-band.
 //
 //   - Per-service migrations table. Multiple services share the interim
 //     iudx_db, so each Run call passes its own history table via
