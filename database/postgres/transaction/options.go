@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/datakaveri/dx-common-go/resilience"
 )
 
 // pgErrSerialization / pgErrDeadlock are the PostgreSQL error codes
@@ -38,6 +39,14 @@ type RetryConfig struct {
 // yours, just try again." Any other error, or exhausting MaxAttempts,
 // returns immediately.
 func WithRetryableTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error, cfg ...RetryConfig) error {
+	return retryTx(ctx, "WithRetryableTx", resolveRetryConfig(cfg), func(ctx context.Context) error {
+		return WithTransaction(ctx, pool, fn)
+	})
+}
+
+// resolveRetryConfig applies the defaults (3 attempts, 20ms base) plus any
+// caller override.
+func resolveRetryConfig(cfg []RetryConfig) RetryConfig {
 	rc := RetryConfig{MaxAttempts: 3, BaseDelay: 20 * time.Millisecond}
 	if len(cfg) > 0 {
 		if cfg[0].MaxAttempts > 0 {
@@ -47,26 +56,25 @@ func WithRetryableTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) er
 			rc.BaseDelay = cfg[0].BaseDelay
 		}
 	}
+	return rc
+}
 
-	var lastErr error
-	delay := rc.BaseDelay
-	for attempt := 1; attempt <= rc.MaxAttempts; attempt++ {
-		lastErr = WithTransaction(ctx, pool, fn)
-		if lastErr == nil || !isRetryablePgError(lastErr) {
-			return lastErr
-		}
-		if attempt == rc.MaxAttempts {
-			break
-		}
-		jitter := time.Duration(rand.Int63n(int64(delay) + 1))
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(delay + jitter):
-		}
-		delay *= 2
+// retryTx runs a transaction closure under the shared resilience.Retry engine,
+// retrying only serialization/deadlock failures (40001/40P01) with exponential
+// backoff + jitter, and preserving the "giving up after N attempts" wrap when
+// retries are exhausted on a retryable error. label names the caller for that
+// error.
+func retryTx(ctx context.Context, label string, rc RetryConfig, run func(context.Context) error) error {
+	policy := resilience.NewPolicy(
+		resilience.WithMaxAttempts(rc.MaxAttempts),
+		resilience.WithBaseDelay(rc.BaseDelay),
+		resilience.WithMultiplier(2),
+	)
+	err := resilience.Retry(ctx, policy, run, resilience.WithRetryable(isRetryablePgError))
+	if err != nil && isRetryablePgError(err) {
+		return fmt.Errorf("transaction.%s: giving up after %d attempts: %w", label, rc.MaxAttempts, err)
 	}
-	return fmt.Errorf("transaction.WithRetryableTx: giving up after %d attempts: %w", rc.MaxAttempts, lastErr)
+	return err
 }
 
 func isRetryablePgError(err error) bool {
