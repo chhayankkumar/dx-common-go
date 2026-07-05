@@ -91,9 +91,9 @@ func TestBasicCredentials(t *testing.T) {
 	}
 
 	for _, h := range []string{
-		"",                       // no header
-		"Bearer xyz",             // not basic
-		"Basic !!!notbase64",     // bad base64
+		"",                   // no header
+		"Bearer xyz",         // not basic
+		"Basic !!!notbase64", // bad base64
 		"Basic " + base64.StdEncoding.EncodeToString([]byte("noColon")), // no colon
 		"Basic " + base64.StdEncoding.EncodeToString([]byte(":onlysecret")),
 		"Basic " + base64.StdEncoding.EncodeToString([]byte("onlyid:")),

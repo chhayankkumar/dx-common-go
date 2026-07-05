@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/datakaveri/dx-common-go/auth"
+	"github.com/datakaveri/dx-common-go/resilience"
 	"github.com/datakaveri/dx-common-go/transport/headers"
 )
 
@@ -37,9 +38,25 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 2 * time.Second
 	}
+	// authz is a hot-path PDP dependency: a circuit breaker fails fast when it
+	// is down (instead of adding the full timeout to every request), and
+	// idempotent-safe retries ride out transient blips. POST /v1/check and
+	// /v1/policies are intentionally NOT retried (tuple writes aren't
+	// idempotent); DELETE /v1/policies is.
+	httpClient := resilience.NewHTTPClient(
+		resilience.WithClientTimeout(cfg.Timeout),
+		resilience.WithBreaker(resilience.NewCircuitBreaker(
+			resilience.WithFailureThreshold(5),
+			resilience.WithCooldown(10*time.Second),
+		)),
+		resilience.WithPolicy(resilience.NewPolicy(
+			resilience.WithMaxAttempts(2),
+			resilience.WithBaseDelay(50*time.Millisecond),
+		)),
+	)
 	return &Client{
 		cfg:  cfg,
-		http: &http.Client{Timeout: cfg.Timeout},
+		http: httpClient,
 	}, nil
 }
 

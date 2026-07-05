@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/datakaveri/dx-common-go/resilience"
 )
 
 // tokenSource fetches and caches a Keycloak service-account token via the
@@ -24,9 +26,20 @@ type tokenSource struct {
 }
 
 func newTokenSource(cfg Config) *tokenSource {
+	// The client-credentials token grant is safe to retry (it just issues a
+	// fresh token), so POST is opted in; a breaker fails fast when Keycloak is
+	// down instead of stalling every caller behind the full timeout.
+	httpClient := resilience.NewHTTPClient(
+		resilience.WithClientTimeout(10*time.Second),
+		resilience.WithRetryMethods(http.MethodPost),
+		resilience.WithBreaker(resilience.NewCircuitBreaker(
+			resilience.WithFailureThreshold(5),
+			resilience.WithCooldown(15*time.Second),
+		)),
+	)
 	return &tokenSource{
 		cfg:  cfg,
-		http: &http.Client{Timeout: 10 * time.Second},
+		http: httpClient,
 	}
 }
 
