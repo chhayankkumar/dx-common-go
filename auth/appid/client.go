@@ -10,8 +10,8 @@ import (
 
 	"github.com/datakaveri/dx-common-go/auth"
 	"github.com/datakaveri/dx-common-go/grpc/appidpb"
+	grpcclient "github.com/datakaveri/dx-common-go/grpc/client"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -39,9 +39,12 @@ func NewClient(cfg Config) (*Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(cfg.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Dial via the shared helper: default-on resilience (retry transient codes),
+	// OTel tracing, and keepalive. The channel stays plaintext by design — TLS
+	// is terminated by the service mesh.
+	conn, err := grpcclient.Dial(grpcclient.Config{Target: cfg.Address})
 	if err != nil {
-		return nil, fmt.Errorf("appid.NewClient: dial %s: %w", cfg.Address, err)
+		return nil, fmt.Errorf("appid.NewClient: %w", err)
 	}
 
 	return &Client{
