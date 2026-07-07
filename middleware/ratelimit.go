@@ -3,6 +3,7 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -97,9 +98,9 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 			}
 
 			// Add rate limit headers
-			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", rl.cfg.RequestsPerSecond))
-			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", int(limiter.Tokens())))
-			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Second).Unix()))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(rl.cfg.RequestsPerSecond))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(int(limiter.Tokens())))
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Second).Unix(), 10))
 
 			next.ServeHTTP(w, r)
 		})
@@ -161,8 +162,8 @@ func (rbe *RateLimitByEndpoint) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limiter.cfg.RequestsPerSecond))
-			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", int(rateLimiter.Tokens())))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limiter.cfg.RequestsPerSecond))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(int(rateLimiter.Tokens())))
 
 			next.ServeHTTP(w, r)
 		})

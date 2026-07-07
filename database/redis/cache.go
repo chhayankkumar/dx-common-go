@@ -74,3 +74,31 @@ func Increment(ctx context.Context, c *Client, key string) (int64, error) {
 	}
 	return n, nil
 }
+
+// GetOrSet returns the cached value at key, computing and storing it via
+// loader on a miss (the cache-aside pattern). Concurrent callers racing on
+// the same miss may each invoke loader — there is no single-flight lock
+// here; pair GetOrSet with a Mutex if that duplication is unacceptable for
+// a given loader (e.g. it has side effects, or is expensive enough that a
+// thundering herd matters).
+// Deprecated: use cache.GetOrLoad with redis.NewCache — adds singleflight
+// stampede protection (FRAMEWORK proposal D4).
+func GetOrSet[T any](ctx context.Context, c *Client, key string, ttl time.Duration, loader func() (T, error)) (T, error) {
+	var dest T
+	hit, err := GetJSON(ctx, c, key, &dest)
+	if err != nil {
+		return dest, fmt.Errorf("redis.GetOrSet: %w", err)
+	}
+	if hit {
+		return dest, nil
+	}
+
+	dest, err = loader()
+	if err != nil {
+		return dest, err
+	}
+	if err := SetJSON(ctx, c, key, dest, ttl); err != nil {
+		return dest, fmt.Errorf("redis.GetOrSet: %w", err)
+	}
+	return dest, nil
+}

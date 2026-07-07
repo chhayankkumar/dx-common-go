@@ -1,0 +1,40 @@
+package middleware
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
+)
+
+// StandardStack applies the common CDPG middleware stack to a chi.Router:
+// RequestID → RealIP → Logger → CORS → Compression → Recoverer → Timeout.
+//
+// Use this instead of wiring each middleware individually to keep all Go
+// services consistent.
+func StandardStack(logger *zap.Logger, timeout time.Duration) func(chi.Router) {
+	return func(r chi.Router) {
+		r.Use(RequestID())
+		r.Use(chimw.RealIP)
+		r.Use(Logger(logger))
+		r.Use(CORS(DefaultCORSConfig()))
+		r.Use(Compression())
+		r.Use(chimw.Recoverer)
+		r.Use(chimw.Timeout(timeout))
+	}
+}
+
+// MetricsHandler returns a simple handler for the /metrics endpoint that can
+// be plugged into any chi router. If handler is nil, it returns a 200 OK stub.
+func MetricsHandler(handler http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if handler != nil {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("# no metrics registered\n"))
+	}
+}

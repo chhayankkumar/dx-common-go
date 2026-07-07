@@ -5,6 +5,8 @@ import (
 	"runtime/debug"
 
 	"go.uber.org/zap"
+
+	dxerrors "github.com/datakaveri/dx-common-go/errors"
 )
 
 // Recovery returns a chi-compatible middleware that catches panics, logs the
@@ -22,7 +24,7 @@ func Recovery(logger *zap.Logger) func(http.Handler) http.Handler {
 						zap.String("path", r.URL.Path),
 						zap.String("request_id", RequestIDFromCtx(r.Context())),
 					)
-					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					dxerrors.WriteError(w, dxerrors.NewInternal("internal server error"))
 				}
 			}()
 			next.ServeHTTP(w, r)

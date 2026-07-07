@@ -388,19 +388,30 @@ err := config.Load("config.yaml", "APP", cfg)
 
 ### `openapi`
 
-OpenAPI 3.1 spec loading and request validation middleware.
+OpenAPI 3 spec loading, request-validation middleware, and a self-contained
+Swagger UI. Every Go service follows one convention — embed the spec, validate
+requests, serve `/docs` — documented in **[openapi/STANDARD.md](openapi/STANDARD.md)**.
 
 ```go
-import "github.com/datakaveri/dx-common-go/openapi"
+import dxopenapi "github.com/datakaveri/dx-common-go/openapi"
 
-spec, err := openapi.LoadSpec("openapi/openapi.yaml")
+// Embed the spec into the binary (openapi/spec.go in each service):
+//   //go:embed openapi.yaml
+//   var SpecBytes []byte
 
-// Chi middleware: validate all requests against the spec
-r.Use(openapi.ValidateRequest(spec))
+// Load it at boot — fail closed: a bad embedded spec is a build defect.
+loader, err := dxopenapi.NewLoaderFromBytes(openapispec.SpecBytes)
 
-// Mount Swagger UI at /docs
-openapi.MountSwaggerUI(r, "/docs", spec)
+// Chi middleware: validate requests against the spec (skips health paths,
+// passes through routes absent from the spec).
+r.Use(dxopenapi.ValidationMiddleware(loader, cfg.OpenAPI))
+
+// Serve Swagger UI at {SwaggerUIPath} + the raw spec at {SwaggerUIPath}/openapi.json
+dxopenapi.ServeUI(r, loader, cfg.OpenAPI)
 ```
+
+See [openapi/STANDARD.md](openapi/STANDARD.md) for the embed pattern, the shared
+`openapi.Config` block, the gateway exception, and the exposure policy.
 
 ---
 

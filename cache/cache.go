@@ -3,6 +3,8 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,7 +20,15 @@ type Cache interface {
 	Clear(ctx context.Context) error
 }
 
+var (
+	_ Cache = (*RedisCache)(nil)
+	_ Cache = (*MemoryCache)(nil)
+)
+
 // RedisCache wraps a Redis client
+// Deprecated: use database/redis.NewCache (implements this same Cache interface
+// with key-prefix + default-TTL options) — this type will be removed after
+// fleet migration (FRAMEWORK proposal D4).
 type RedisCache struct {
 	client *redis.Client
 }
@@ -87,8 +97,10 @@ func (rc *RedisCache) Clear(ctx context.Context) error {
 	return rc.client.FlushDB(ctx).Err()
 }
 
-// MemoryCache is an in-memory cache for local development/testing
+// MemoryCache is an in-memory cache for local development/testing.
+// It is safe for concurrent use.
 type MemoryCache struct {
+	mu   sync.RWMutex
 	data map[string]cacheEntry
 	ttl  map[string]time.Time
 }
@@ -107,7 +119,9 @@ func NewMemoryCache() *MemoryCache {
 
 // Get retrieves a value from memory cache
 func (mc *MemoryCache) Get(ctx context.Context, key string) (string, error) {
-	// Check if expired
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	if expiry, ok := mc.ttl[key]; ok {
 		if time.Now().After(expiry) {
 			delete(mc.data, key)
@@ -144,9 +158,15 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value interface{}, t
 	if s, ok := value.(string); ok {
 		val = s
 	} else {
-		jsonBytes, _ := json.Marshal(value)
+		jsonBytes, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("memory cache: marshal value for %q: %w", key, err)
+		}
 		val = string(jsonBytes)
 	}
+
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 
 	mc.data[key] = cacheEntry{value: val}
 
@@ -161,6 +181,8 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value interface{}, t
 
 // Delete removes a key from memory cache
 func (mc *MemoryCache) Delete(ctx context.Context, key string) error {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 	delete(mc.data, key)
 	delete(mc.ttl, key)
 	return nil
@@ -168,7 +190,9 @@ func (mc *MemoryCache) Delete(ctx context.Context, key string) error {
 
 // Exists checks if a key exists in memory cache
 func (mc *MemoryCache) Exists(ctx context.Context, key string) (bool, error) {
-	// Check if expired
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	if expiry, ok := mc.ttl[key]; ok {
 		if time.Now().After(expiry) {
 			delete(mc.data, key)
@@ -183,12 +207,16 @@ func (mc *MemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 
 // Clear removes all keys from memory cache
 func (mc *MemoryCache) Clear(ctx context.Context) error {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 	mc.data = make(map[string]cacheEntry)
 	mc.ttl = make(map[string]time.Time)
 	return nil
 }
 
 // CacheHelper provides common caching patterns
+// Deprecated: use the generic cache.GetOrLoad (typed, singleflight stampede
+// protection) — removed after fleet migration (FRAMEWORK proposal D4).
 type CacheHelper struct {
 	cache Cache
 	ttl   time.Duration
@@ -220,21 +248,29 @@ func (ch *CacheHelper) GetOrFetch(ctx context.Context, key string, fetch func() 
 	return result, nil
 }
 
-// GetJSONOrFetch gets JSON from cache or fetches and caches result
+// GetJSONOrFetch gets JSON from cache or fetches, caches, and unmarshals the result into dest.
 func (ch *CacheHelper) GetJSONOrFetch(ctx context.Context, key string, dest interface{}, fetch func() (interface{}, error)) error {
-	// Try cache first
 	err := ch.cache.GetJSON(ctx, key, dest)
 	if err == nil {
 		return nil
 	}
 
-	// Fetch and cache
 	result, err := fetch()
 	if err != nil {
 		return err
 	}
 
-	return ch.cache.Set(ctx, key, result, ch.ttl)
+	// Populate dest with the freshly fetched value via a JSON round-trip so the
+	// caller sees the same representation a later cache hit would produce.
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, dest); err != nil {
+		return err
+	}
+
+	return ch.cache.Set(ctx, key, string(b), ch.ttl)
 }
 
 // CacheKey helper to create consistent cache keys

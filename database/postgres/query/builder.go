@@ -7,6 +7,13 @@ import (
 
 // SQLBuilder converts query model structs into parameterized SQL strings and
 // argument slices suitable for pgx.
+//
+// Security note: column names, table names, JOIN ON expressions and OrderBy
+// columns are interpolated verbatim — only the Values/Set/condition values
+// are bound as parameters. Callers MUST supply identifiers from trusted,
+// literal sources (constants or fixed allowlists), never raw user input.
+// User-provided sort keys, for example, must be mapped through an allowlist
+// to a known column before reaching OrderBy.Column.
 type SQLBuilder struct{}
 
 // New returns a fresh SQLBuilder.
@@ -22,7 +29,11 @@ func (b *SQLBuilder) BuildSelect(q SelectQuery) (string, []any) {
 	if len(q.Columns) > 0 {
 		cols = strings.Join(q.Columns, ", ")
 	}
-	fmt.Fprintf(&sb, "SELECT %s FROM %s", cols, q.Table)
+	selectKw := "SELECT"
+	if q.Distinct {
+		selectKw = "SELECT DISTINCT"
+	}
+	fmt.Fprintf(&sb, "%s %s FROM %s", selectKw, cols, q.Table)
 
 	for _, j := range q.Joins {
 		fmt.Fprintf(&sb, " %s JOIN %s ON %s", j.Type, j.Table, j.On)
@@ -32,6 +43,14 @@ func (b *SQLBuilder) BuildSelect(q SelectQuery) (string, []any) {
 		sb.WriteString(" WHERE ")
 		clauses := buildConditions(q.Conditions, &args, &idx)
 		sb.WriteString(clauses)
+	}
+
+	if len(q.GroupBy) > 0 {
+		fmt.Fprintf(&sb, " GROUP BY %s", strings.Join(q.GroupBy, ", "))
+	}
+	if len(q.Having) > 0 {
+		sb.WriteString(" HAVING ")
+		sb.WriteString(buildConditions(q.Having, &args, &idx))
 	}
 
 	if len(q.OrderBy) > 0 {
@@ -96,11 +115,14 @@ func (b *SQLBuilder) BuildUpdate(q UpdateQuery) (string, []any) {
 	var args []any
 	idx := 1
 
-	setParts := make([]string, 0, len(q.Set))
+	setParts := make([]string, 0, len(q.Set)+len(q.Increment))
 	for col, val := range q.Set {
 		setParts = append(setParts, fmt.Sprintf("%s = $%d", col, idx))
 		args = append(args, val)
 		idx++
+	}
+	for _, col := range q.Increment {
+		setParts = append(setParts, fmt.Sprintf("%s = %s + 1", col, col))
 	}
 
 	fmt.Fprintf(&sb, "UPDATE %s SET %s", q.Table, strings.Join(setParts, ", "))

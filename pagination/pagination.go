@@ -6,12 +6,19 @@ import (
 )
 
 // Request represents pagination parameters from a request
+//
+// Deprecated: use request.PaginatedRequest (request.From(r).Build()) — the
+// canonical page/size + allowlist sort/filter parser. Response payloads should
+// carry pagination.Info (NewInfo), which remains the standard response shape.
 type Request struct {
 	Page     int `json:"page" form:"page"`
 	PageSize int `json:"page_size" form:"page_size"`
 }
 
 // Response represents pagination metadata in response
+//
+// Deprecated: use pagination.Info (the control-plane contract shape with
+// camelCase page/size/totalCount/totalPages/hasNext/hasPrevious).
 type Response struct {
 	Page       int `json:"page"`
 	PageSize   int `json:"page_size"`
@@ -73,6 +80,40 @@ func ParsePaginationParams(pageStr string, pageSizeStr string) Request {
 	req := Request{Page: page, PageSize: pageSize}
 	req.Validate()
 	return req
+}
+
+// Info is the platform "paginationInfo" response object used by the control
+// plane API contract (and the Go services that replace its endpoints). Unlike
+// Response (snake_case, used internally), Info uses the exact camelCase field
+// names the API contract requires.
+type Info struct {
+	Page        int   `json:"page"`
+	Size        int   `json:"size"`
+	TotalCount  int64 `json:"totalCount"`
+	TotalPages  int   `json:"totalPages"`
+	HasNext     bool  `json:"hasNext"`
+	HasPrevious bool  `json:"hasPrevious"`
+}
+
+// NewInfo builds a paginationInfo object from a 1-based page, the page size, and
+// the total matching count. totalPages = ceil(totalCount/size) (0 when empty),
+// matching the control-plane contract.
+func NewInfo(page, size int, totalCount int64) Info {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 10
+	}
+	totalPages := int(math.Ceil(float64(totalCount) / float64(size)))
+	return Info{
+		Page:        page,
+		Size:        size,
+		TotalCount:  totalCount,
+		TotalPages:  totalPages,
+		HasNext:     page < totalPages,
+		HasPrevious: page > 1,
+	}
 }
 
 // PaginatedResult wraps data with pagination metadata

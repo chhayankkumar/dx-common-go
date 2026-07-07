@@ -45,7 +45,19 @@ func NewBadGateway(message string, details ...string) DxError {
 	return &BaseDxError{code: ErrBadGateway, message: message, details: details}
 }
 
+// NewServiceUnavailable creates a 503 Service Unavailable error. Used when an
+// upstream is configured/enabled but not currently reachable (e.g. not
+// deployed), so the gateway degrades gracefully instead of looking faulty.
+func NewServiceUnavailable(message string, details ...string) DxError {
+	return &BaseDxError{code: ErrServiceUnavailable, message: message, details: details}
+}
+
 // NewTooManyRequests creates a 429 Too Many Requests error.
 func NewTooManyRequests(message string, details ...string) DxError {
 	return &BaseDxError{code: ErrTooManyRequests, message: message, details: details}
+}
+
+// NewMethodNotAllowed creates a 405 Method Not Allowed error.
+func NewMethodNotAllowed(message string, details ...string) DxError {
+	return &BaseDxError{code: ErrMethodNotAllowed, message: message, details: details}
 }

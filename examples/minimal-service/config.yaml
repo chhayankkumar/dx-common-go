@@ -1,0 +1,16 @@
+# Sample configuration for minimal-service. Every key can also be supplied via
+# environment (DX_SERVER_PORT, DX_POSTGRES_DSN, ...) thanks to the EnvPrefix.
+server_port: "8080"
+
+# migrate = apply this service's versioned migrations at boot; none = skip
+# (used while a service's tables are still Flyway-owned).
+schema_mode: migrate
+
+# Empty = tracing off (no-op). Point at an OTLP/gRPC collector to enable
+# distributed traces across HTTP, Postgres, Redis, Elasticsearch and RabbitMQ.
+otel_endpoint: ""
+
+postgres:
+  dsn: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+  max_conns: 10
+  min_conns: 1

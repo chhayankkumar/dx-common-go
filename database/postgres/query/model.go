@@ -2,14 +2,26 @@ package query
 
 // SelectQuery describes a SELECT statement.
 type SelectQuery struct {
-	Table      string
+	Table string
+	// Distinct emits SELECT DISTINCT, deduplicating rows across the selected
+	// Columns (or all columns when Columns is empty).
+	Distinct   bool
 	Columns    []string // empty means "*"
 	Joins      []Join
 	Conditions []Condition
-	OrderBy    []OrderBy
-	Limit      int
-	Offset     int
-	ForUpdate  bool
+	// GroupBy lists columns/expressions for a GROUP BY clause, emitted
+	// verbatim (same trust boundary as OrderBy.Column) — combine with
+	// Columns to select the grouped columns plus aggregate expressions
+	// (e.g. "COUNT(*) AS total"). Must include every non-aggregated column
+	// named in Columns (ordinary SQL rule, not enforced here).
+	GroupBy []string
+	// Having lists post-aggregation filter predicates, rendered after GROUP
+	// BY using the same Condition model Conditions uses for WHERE.
+	Having    []Condition
+	OrderBy   []OrderBy
+	Limit     int
+	Offset    int
+	ForUpdate bool
 }
 
 // InsertQuery describes an INSERT statement.
@@ -22,8 +34,12 @@ type InsertQuery struct {
 
 // UpdateQuery describes an UPDATE statement.
 type UpdateQuery struct {
-	Table      string
-	Set        map[string]any
+	Table string
+	Set   map[string]any
+	// Increment lists columns to bump by 1 (col = col + 1) alongside Set —
+	// for counters and optimistic-locking version columns, which can't be
+	// expressed as a literal Set value.
+	Increment  []string
 	Conditions []Condition
 	Returning  []string
 }
@@ -44,18 +60,4 @@ type UpsertQuery struct {
 	ConflictColumn string
 	UpdateColumns  []string
 	Returning      []string
-}
-
-// Join represents a single JOIN clause.
-type Join struct {
-	// Type is "INNER", "LEFT", "RIGHT", or "FULL OUTER".
-	Type  string
-	Table string
-	On    string
-}
-
-// OrderBy specifies a column sort direction.
-type OrderBy struct {
-	Column string
-	Desc   bool
 }

@@ -30,7 +30,7 @@ func (b *ResponseBuilder[T]) WithDetail(detail string) *ResponseBuilder[T] {
 
 // WithResult sets the results payload.
 func (b *ResponseBuilder[T]) WithResult(result T) *ResponseBuilder[T] {
-	b.resp.Results = result
+	b.resp.Result = result
 	return b
 }
 

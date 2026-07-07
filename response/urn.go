@@ -25,6 +25,30 @@ const (
 	URNAsTokenExpired = "urn:dx:as:TokenExpired"
 )
 
+// URN constants for the catalogue service namespace.
+const (
+	URNCatSuccess  = "urn:dx:cat:success"
+	URNCatCreated  = "urn:dx:cat:created"
+)
+
+// URN constants for the ACL service namespace.
+const (
+	URNAclSuccess  = "urn:dx:acl:success"
+	URNAclCreated  = "urn:dx:acl:created"
+)
+
+// URN constants for the authorization (PDP) service namespace.
+const (
+	URNAuthzSuccess = "urn:dx:authz:success"
+	URNAuthzCreated = "urn:dx:authz:created"
+)
+
+// URN constants for the marketplace service namespace.
+const (
+	URNDmpSuccess  = "urn:dx:dmp:success"
+	URNDmpCreated  = "urn:dx:dmp:created"
+)
+
 // URN constants for the community layer namespace.
 const (
 	URNCommunitySuccess    = "urn:dx:community:success"

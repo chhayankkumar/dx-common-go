@@ -1,9 +1,14 @@
 package errors
 
 import (
+	stderrors "errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestHandleValidationError(t *testing.T) {
@@ -39,17 +44,17 @@ func TestHandleAuthorizationError(t *testing.T) {
 func TestHandleDatabaseError_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("no rows in result set"))
+	HandleDatabaseError(rec, pgx.ErrNoRows)
 
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for 'no rows' error, got %d", rec.Code)
+		t.Fatalf("expected 404 for pgx.ErrNoRows, got %d", rec.Code)
 	}
 }
 
 func TestHandleDatabaseError_UniqueConstraint(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("unique constraint violation"))
+	HandleDatabaseError(rec, &pgconn.PgError{Code: "23505"})
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for unique constraint, got %d", rec.Code)
@@ -59,17 +64,30 @@ func TestHandleDatabaseError_UniqueConstraint(t *testing.T) {
 func TestHandleDatabaseError_ForeignKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("foreign key constraint violation"))
+	HandleDatabaseError(rec, &pgconn.PgError{Code: "23503"})
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 for foreign key constraint, got %d", rec.Code)
+	// 23503 maps to Validation (400) per the reconciled MapPostgresError —
+	// previously this path said Conflict (409) while dao.MapPgError said
+	// Validation; the dao mapping is now canonical for both.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for foreign key constraint, got %d", rec.Code)
+	}
+}
+
+func TestHandleDatabaseError_DxErrorPassthrough(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	HandleDatabaseError(rec, NewNotFound("already mapped"))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for DxError passthrough, got %d", rec.Code)
 	}
 }
 
 func TestHandleDatabaseError_Generic(t *testing.T) {
 	rec := httptest.NewRecorder()
 
-	HandleDatabaseError(rec, NewDatabase("query failed"))
+	HandleDatabaseError(rec, stderrors.New("some unknown db error"))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 for generic database error, got %d", rec.Code)
@@ -164,8 +182,8 @@ func TestGetErrorDetail(t *testing.T) {
 
 	detail := GetErrorDetail(err)
 
-	if detail.Code != "VALIDATION_ERROR" {
-		t.Fatalf("expected VALIDATION_ERROR, got %s", detail.Code)
+	if detail.Code != "ERR_VALIDATION" {
+		t.Fatalf("expected ERR_VALIDATION, got %s", detail.Code)
 	}
 
 	if detail.StatusCode != http.StatusBadRequest {
@@ -173,7 +191,7 @@ func TestGetErrorDetail(t *testing.T) {
 	}
 
 	if detail.Message != "validation failed" {
-		t.Fatalf("expected message, got %s", detail.Message)
+		t.Fatalf("expected 'validation failed', got %s", detail.Message)
 	}
 
 	if len(detail.Details) != 1 {
@@ -210,5 +228,47 @@ func TestHandleError_NilError(t *testing.T) {
 	// Should not write anything
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for nil error, got %d", rec.Code)
+	}
+}
+
+func TestWriteServerError_DxErrorPassesThroughWithoutLogging(t *testing.T) {
+	rec := httptest.NewRecorder()
+	logged := false
+
+	WriteServerError(rec, NewNotFound("missing"), func(error) { logged = true })
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for DxError, got %d", rec.Code)
+	}
+	if logged {
+		t.Fatal("DxError must not be logged as unexpected")
+	}
+}
+
+func TestWriteServerError_UnexpectedLogsAndReturnsGeneric500(t *testing.T) {
+	rec := httptest.NewRecorder()
+	var got error
+
+	WriteServerError(rec, stderrors.New("boom: secret detail"), func(e error) { got = e })
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for unexpected error, got %d", rec.Code)
+	}
+	if got == nil || got.Error() != "boom: secret detail" {
+		t.Fatalf("logUnexpected should receive the original error, got %v", got)
+	}
+	// The internal detail must not leak into the response body.
+	if strings.Contains(rec.Body.String(), "secret detail") {
+		t.Fatalf("internal error detail leaked to client: %s", rec.Body.String())
+	}
+}
+
+func TestWriteServerError_NilLoggerIsSafe(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	WriteServerError(rec, stderrors.New("boom"), nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 }

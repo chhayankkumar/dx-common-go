@@ -17,7 +17,7 @@ func TestRequest_Validate_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestRequest_Validate_LargePage Size(t *testing.T) {
+func TestRequest_Validate_LargePageSize(t *testing.T) {
 	req := Request{Page: 1, PageSize: 200}
 	req.Validate()
 
@@ -28,165 +28,92 @@ func TestRequest_Validate_LargePage Size(t *testing.T) {
 
 func TestRequest_Offset(t *testing.T) {
 	tests := []struct {
+		name     string
 		page     int
 		pageSize int
-		expected int
+		want     int
 	}{
-		{1, 10, 0},      // First page
-		{2, 10, 10},     // Second page
-		{3, 10, 20},     // Third page
-		{1, 100, 0},     // Different page size
-		{2, 100, 100},   // Different page size
+		{name: "first page", page: 1, pageSize: 10, want: 0},
+		{name: "second page", page: 2, pageSize: 10, want: 10},
+		{name: "third page", page: 3, pageSize: 10, want: 20},
+		{name: "large page size first", page: 1, pageSize: 100, want: 0},
+		{name: "large page size second", page: 2, pageSize: 100, want: 100},
 	}
 
 	for _, tt := range tests {
-		req := Request{Page: tt.page, PageSize: tt.pageSize}
-		offset := req.Offset()
-		if offset != tt.expected {
-			t.Fatalf("page=%d,pageSize=%d: expected offset=%d, got %d",
-				tt.page, tt.pageSize, tt.expected, offset)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			req := Request{Page: tt.page, PageSize: tt.pageSize}
+			if got := req.Offset(); got != tt.want {
+				t.Fatalf("Offset() = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestResponse_NewResponse(t *testing.T) {
-	req := Request{Page: 1, PageSize: 10}
-	resp := NewResponse(req, 250)
-
-	if resp.Page != 1 {
-		t.Fatalf("expected page=1, got %d", resp.Page)
+func TestNewResponse(t *testing.T) {
+	tests := []struct {
+		name           string
+		page           int
+		pageSize       int
+		total          int64
+		wantTotalPages int
+		wantHasNext    bool
+		wantHasPrev    bool
+	}{
+		{name: "first of many", page: 1, pageSize: 10, total: 250, wantTotalPages: 25, wantHasNext: true, wantHasPrev: false},
+		{name: "middle page", page: 5, pageSize: 10, total: 250, wantTotalPages: 25, wantHasNext: true, wantHasPrev: true},
+		{name: "last page", page: 25, pageSize: 10, total: 250, wantTotalPages: 25, wantHasNext: false, wantHasPrev: true},
+		{name: "single page", page: 1, pageSize: 10, total: 5, wantTotalPages: 1, wantHasNext: false, wantHasPrev: false},
+		{name: "zero total", page: 1, pageSize: 10, total: 0, wantTotalPages: 1, wantHasNext: false, wantHasPrev: false},
+		{name: "large dataset", page: 50, pageSize: 100, total: 10000, wantTotalPages: 100, wantHasNext: true, wantHasPrev: true},
 	}
 
-	if resp.PageSize != 10 {
-		t.Fatalf("expected pageSize=10, got %d", resp.PageSize)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := Request{Page: tt.page, PageSize: tt.pageSize}
+			resp := NewResponse(req, tt.total)
 
-	if resp.Total != 250 {
-		t.Fatalf("expected total=250, got %d", resp.Total)
-	}
-
-	if resp.TotalPages != 25 {
-		t.Fatalf("expected totalPages=25, got %d", resp.TotalPages)
-	}
-
-	if !resp.HasNext {
-		t.Fatal("expected hasNext=true for first page of multiple")
-	}
-
-	if resp.HasPrev {
-		t.Fatal("expected hasPrev=false for first page")
-	}
-}
-
-func TestResponse_FirstPage(t *testing.T) {
-	req := Request{Page: 1, PageSize: 10}
-	resp := NewResponse(req, 250)
-
-	if resp.HasPrev {
-		t.Fatal("first page should not have previous")
-	}
-	if !resp.HasNext {
-		t.Fatal("first page should have next")
+			if resp.TotalPages != tt.wantTotalPages {
+				t.Fatalf("TotalPages = %d, want %d", resp.TotalPages, tt.wantTotalPages)
+			}
+			if resp.HasNext != tt.wantHasNext {
+				t.Fatalf("HasNext = %v, want %v", resp.HasNext, tt.wantHasNext)
+			}
+			if resp.HasPrev != tt.wantHasPrev {
+				t.Fatalf("HasPrev = %v, want %v", resp.HasPrev, tt.wantHasPrev)
+			}
+		})
 	}
 }
 
-func TestResponse_MiddlePage(t *testing.T) {
-	req := Request{Page: 5, PageSize: 10}
-	resp := NewResponse(req, 250)
+func TestParsePaginationParams(t *testing.T) {
+	tests := []struct {
+		name         string
+		pageStr      string
+		pageSizeStr  string
+		wantPage     int
+		wantPageSize int
+	}{
+		{name: "valid values", pageStr: "2", pageSizeStr: "20", wantPage: 2, wantPageSize: 20},
+		{name: "invalid strings", pageStr: "invalid", pageSizeStr: "also_invalid", wantPage: 1, wantPageSize: 10},
+		{name: "empty strings", pageStr: "", pageSizeStr: "", wantPage: 1, wantPageSize: 10},
+		{name: "negative values", pageStr: "-5", pageSizeStr: "-20", wantPage: 1, wantPageSize: 10},
+	}
 
-	if !resp.HasPrev {
-		t.Fatal("middle page should have previous")
-	}
-	if !resp.HasNext {
-		t.Fatal("middle page should have next")
-	}
-}
-
-func TestResponse_LastPage(t *testing.T) {
-	req := Request{Page: 25, PageSize: 10}
-	resp := NewResponse(req, 250)
-
-	if !resp.HasPrev {
-		t.Fatal("last page should have previous")
-	}
-	if resp.HasNext {
-		t.Fatal("last page should not have next")
-	}
-}
-
-func TestResponse_SinglePage(t *testing.T) {
-	req := Request{Page: 1, PageSize: 10}
-	resp := NewResponse(req, 5)
-
-	if resp.TotalPages != 1 {
-		t.Fatalf("expected totalPages=1, got %d", resp.TotalPages)
-	}
-	if resp.HasNext {
-		t.Fatal("single page should not have next")
-	}
-	if resp.HasPrev {
-		t.Fatal("single page should not have previous")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := ParsePaginationParams(tt.pageStr, tt.pageSizeStr)
+			if req.Page != tt.wantPage {
+				t.Fatalf("Page = %d, want %d", req.Page, tt.wantPage)
+			}
+			if req.PageSize != tt.wantPageSize {
+				t.Fatalf("PageSize = %d, want %d", req.PageSize, tt.wantPageSize)
+			}
+		})
 	}
 }
 
-func TestResponse_ZeroTotal(t *testing.T) {
-	req := Request{Page: 1, PageSize: 10}
-	resp := NewResponse(req, 0)
-
-	if resp.TotalPages != 1 {
-		t.Fatalf("expected totalPages=1 for zero total, got %d", resp.TotalPages)
-	}
-}
-
-func TestParsePaginationParams_Valid(t *testing.T) {
-	req := ParsePaginationParams("2", "20")
-
-	if req.Page != 2 {
-		t.Fatalf("expected page=2, got %d", req.Page)
-	}
-
-	if req.PageSize != 20 {
-		t.Fatalf("expected pageSize=20, got %d", req.PageSize)
-	}
-}
-
-func TestParsePaginationParams_Invalid(t *testing.T) {
-	req := ParsePaginationParams("invalid", "also_invalid")
-
-	if req.Page != 1 {
-		t.Fatalf("expected default page=1, got %d", req.Page)
-	}
-
-	if req.PageSize != 10 {
-		t.Fatalf("expected default pageSize=10, got %d", req.PageSize)
-	}
-}
-
-func TestParsePaginationParams_Empty(t *testing.T) {
-	req := ParsePaginationParams("", "")
-
-	if req.Page != 1 {
-		t.Fatalf("expected default page=1, got %d", req.Page)
-	}
-
-	if req.PageSize != 10 {
-		t.Fatalf("expected default pageSize=10, got %d", req.PageSize)
-	}
-}
-
-func TestParsePaginationParams_Negative(t *testing.T) {
-	req := ParsePaginationParams("-5", "-20")
-
-	if req.Page != 1 {
-		t.Fatalf("expected default page=1 for negative, got %d", req.Page)
-	}
-
-	if req.PageSize != 10 {
-		t.Fatalf("expected default pageSize=10 for negative, got %d", req.PageSize)
-	}
-}
-
-func TestPaginatedResult_NewPaginatedResult(t *testing.T) {
+func TestNewPaginatedResult(t *testing.T) {
 	data := []string{"a", "b", "c"}
 	req := Request{Page: 1, PageSize: 10}
 	resp := NewResponse(req, 3)
@@ -196,23 +123,7 @@ func TestPaginatedResult_NewPaginatedResult(t *testing.T) {
 	if len(result.Data) != 3 {
 		t.Fatalf("expected 3 items, got %d", len(result.Data))
 	}
-
 	if result.Pagination.Page != 1 {
 		t.Fatalf("expected page=1, got %d", result.Pagination.Page)
-	}
-}
-
-func TestResponse_LargeDataset(t *testing.T) {
-	req := Request{Page: 50, PageSize: 100}
-	total := int64(10000)
-	resp := NewResponse(req, total)
-
-	if resp.TotalPages != 100 {
-		t.Fatalf("expected 100 pages, got %d", resp.TotalPages)
-	}
-
-	expectedHasNext := req.Page < resp.TotalPages
-	if resp.HasNext != expectedHasNext {
-		t.Fatalf("expected hasNext=%v", expectedHasNext)
 	}
 }

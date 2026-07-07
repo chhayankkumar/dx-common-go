@@ -45,7 +45,7 @@ func ValidateMultipartUpload(cfg UploadConfig) func(http.Handler) http.Handler {
 
 			// Parse multipart form with size limits
 			if err := r.ParseMultipartForm(cfg.MaxMemory); err != nil {
-				dxerrors.WriteError(w, dxerrors.NewValidation("failed to parse form", err.Error()))
+				dxerrors.WriteError(w, dxerrors.NewValidation("failed to parse multipart form"))
 				return
 			}
 
@@ -67,21 +67,18 @@ func ValidateMultipartUpload(cfg UploadConfig) func(http.Handler) http.Handler {
 							file, err := fileHeader.Open()
 							if err != nil {
 								dxerrors.WriteError(w, dxerrors.NewInternal(
-									"failed to read file: "+fileHeader.Filename,
-									err.Error(),
+									"failed to process uploaded file",
 								))
 								return
 							}
 
-							// Read magic bytes to determine actual MIME type
 							buffer := make([]byte, 512)
 							_, err = file.Read(buffer)
 							file.Close()
 
 							if err != nil && err != io.EOF {
 								dxerrors.WriteError(w, dxerrors.NewInternal(
-									"failed to read file: "+fileHeader.Filename,
-									err.Error(),
+									"failed to process uploaded file",
 								))
 								return
 							}

@@ -13,12 +13,14 @@ type DxErrorResponse struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// WriteError serialises a DxError as JSON and writes it to w.
+// WriteError serialises a DxError as JSON and writes it to w. The title field
+// is the human-readable HTTP status description (e.g., "Bad Request") matching
+// the Java controlplane convention.
 func WriteError(w http.ResponseWriter, err DxError) {
 	resp := DxErrorResponse{
 		Type:   err.URN(),
-		Title:  string(err.Code()),
-		Detail: err.Error(),
+		Title:  err.Title(),
+		Detail: err.Message(),
 		Errors: err.Details(),
 	}
 	w.Header().Set("Content-Type", "application/json")

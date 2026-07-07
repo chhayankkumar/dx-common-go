@@ -2,33 +2,13 @@ package query
 
 import "fmt"
 
-// Operator represents a SQL comparison or membership operator.
-type Operator string
-
-const (
-	OpEq      Operator = "="
-	OpNotEq   Operator = "<>"
-	OpGt      Operator = ">"
-	OpGte     Operator = ">="
-	OpLt      Operator = "<"
-	OpLte     Operator = "<="
-	OpLike    Operator = "LIKE"
-	OpILike   Operator = "ILIKE"
-	OpIn      Operator = "IN"
-	OpNotIn   Operator = "NOT IN"
-	OpIsNull  Operator = "IS NULL"
-	OpNotNull Operator = "IS NOT NULL"
-	OpAnd     Operator = "AND"
-	OpOr      Operator = "OR"
-)
-
 // Condition represents one predicate in a WHERE clause.
 type Condition struct {
-	Column   string
-	Op       Operator
-	Value    any
+	Column string
+	Op     Operator
+	Value  any
 	// Sub holds nested conditions for AND / OR groupings.
-	Sub      []Condition
+	Sub []Condition
 }
 
 // ConditionBuilder provides a fluent API for constructing WHERE conditions.
@@ -78,18 +58,18 @@ func (b *ConditionBuilder) Lte(column string, value any) *ConditionBuilder {
 }
 
 // Like appends column LIKE pattern.
-func (b *ConditionBuilder) Like(column string, pattern string) *ConditionBuilder {
+func (b *ConditionBuilder) Like(column, pattern string) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpLike, Value: pattern})
 	return b
 }
 
 // ILike appends column ILIKE pattern (case-insensitive).
-func (b *ConditionBuilder) ILike(column string, pattern string) *ConditionBuilder {
+func (b *ConditionBuilder) ILike(column, pattern string) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpILike, Value: pattern})
 	return b
 }
 
-// In appends column IN (values...).
+// In appends column IN (values...). values is a slice.
 func (b *ConditionBuilder) In(column string, values any) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpIn, Value: values})
 	return b
@@ -98,6 +78,12 @@ func (b *ConditionBuilder) In(column string, values any) *ConditionBuilder {
 // NotIn appends column NOT IN (values...).
 func (b *ConditionBuilder) NotIn(column string, values any) *ConditionBuilder {
 	b.conditions = append(b.conditions, Condition{Column: column, Op: OpNotIn, Value: values})
+	return b
+}
+
+// Between appends column BETWEEN low AND high (inclusive).
+func (b *ConditionBuilder) Between(column string, low, high any) *ConditionBuilder {
+	b.conditions = append(b.conditions, Condition{Column: column, Op: OpBetween, Value: []any{low, high}})
 	return b
 }
 
@@ -139,10 +125,27 @@ func conditionSQL(c Condition, args *[]any, idx *int) string {
 	case OpNotNull:
 		return fmt.Sprintf("%s IS NOT NULL", c.Column)
 	case OpIn, OpNotIn:
+		// Slices bind as a single Postgres array parameter, so membership is
+		// expressed with ANY/ALL — pgx cannot expand `IN ($1)` with a slice.
 		*args = append(*args, c.Value)
 		placeholder := fmt.Sprintf("$%d", *idx)
 		*idx++
-		return fmt.Sprintf("%s %s (%s)", c.Column, c.Op, placeholder)
+		if c.Op == OpNotIn {
+			return fmt.Sprintf("%s <> ALL(%s)", c.Column, placeholder)
+		}
+		return fmt.Sprintf("%s = ANY(%s)", c.Column, placeholder)
+	case OpBetween:
+		vals, ok := c.Value.([]any)
+		if !ok || len(vals) != 2 {
+			// Render an always-false predicate rather than panicking on bad input.
+			return "1=0 /* BETWEEN requires [low, high] */"
+		}
+		*args = append(*args, vals[0], vals[1])
+		low := fmt.Sprintf("$%d", *idx)
+		*idx++
+		high := fmt.Sprintf("$%d", *idx)
+		*idx++
+		return fmt.Sprintf("%s BETWEEN %s AND %s", c.Column, low, high)
 	case OpAnd, OpOr:
 		parts := make([]string, 0, len(c.Sub))
 		for _, sub := range c.Sub {

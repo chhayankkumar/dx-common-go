@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package org.cdpg.dx.auth.appid.v1;
+
+option go_package = "github.com/datakaveri/dx-common-go/grpc/appidpb";
+option java_multiple_files  = true;
+option java_package         = "org.cdpg.dx.auth.appid.v1";
+option java_outer_classname = "AppIdVerificationProto";
+
+// ── VerifyAppId ────────────────────────────────────────────────────────────
+message VerifyAppIdRequest {
+  string app_id     = 1;  // UUID string — safe to log
+  string app_secret = 2;  // plaintext — NEVER log
+}
+
+message VerifyAppIdResponse {
+  bool   success    = 1;
+  string error_code = 2;  // empty on success; INVALID_CREDENTIALS | REVOKED | EXPIRED
+  AppIdPrincipalProto principal = 3;
+}
+
+// Identity-only principal — no item metadata (that comes from CheckItemAccess).
+message AppIdPrincipalProto {
+  string          app_id           = 1;
+  string          user_id          = 2;  // user_id from app_credentials
+  repeated string roles            = 3;  // e.g. ["consumer"]
+  repeated string scopes           = 4;  // e.g. ["data_access"]
+  int64           expires_at_epoch = 6;  // 0 = no expiry; field 5 reserved
+  string          organisation_id  = 7;  // owner's organisation UUID from Keycloak
+}
+
+// ── CheckItemAccess ────────────────────────────────────────────────────────
+message CheckItemAccessRequest {
+  string user_id   = 1;  // userId from VerifyAppId response — no extra DB lookup needed
+  string entity_id = 2;
+  string did       = 3;  // optional; empty = direct access, non-empty = delegation check (userId → did)
+}
+
+message CheckItemAccessResponse {
+  bool   success              = 1;
+  string error_code           = 2;  // NO_ACCESS | NOT_FOUND | INTERNAL_ERROR
+  string iid                  = 3;
+  string access_policy        = 4;
+  string resource_server_json = 5;  // JSON-encoded resourceServer array
+  string policies_json        = 6;  // JSON-encoded policies array
+}
+
+// ── ResolveDelegation ──────────────────────────────────────────────────────
+message ResolveDelegationRequest {
+  string delegator_sub = 1;
+  string delegatee_sub = 2;
+}
+
+message ResolveDelegationResponse {
+  bool             success          = 1;
+  string           error_code       = 2;  // NO_ACTIVE_DELEGATION | EXPIRED | DELEGATOR_INACTIVE | INTERNAL_ERROR
+  string           sub              = 3;  // delegator's sub (UUID)
+  string           organisation_id  = 4;
+  string           organisation_name = 5;
+  repeated string  roles            = 6;
+  repeated string  scopes           = 7;
+  bool             email_verified   = 8;
+  bool             kyc_verified     = 9;
+  string           name             = 10;
+  string           preferred_username = 11;
+  string           given_name       = 12;
+  string           family_name      = 13;
+  string           email            = 14;
+  bool             account_enabled  = 15;
+  string           delegatee_sub    = 16;  // echoed back for audit
+}
+
+// ── GetItem ────────────────────────────────────────────────────────────────
+// Catalogue item lookup for external PAPs (e.g. dx-acl-go). Replaces the
+// Vert.x ItemService proxy the in-process Java ACL uses.
+message GetItemRequest {
+  string item_id = 1;  // catalogue item UUID
+  string user_id = 2;  // caller sub, for audit; may be empty
+}
+
+message GetItemResponse {
+  bool   found                = 1;
+  string error_code           = 2;  // NOT_FOUND | INTERNAL_ERROR; empty on success
+  string item_id              = 3;
+  string item_type            = 4;  // DATABANK | AIMODEL | APPS
+  string provider_user_id     = 5;  // owner of the item
+  string organization_id      = 6;  // may be empty for independent providers
+  string organization_name    = 7;
+  string resource_server_json = 8;  // JSON-encoded resourceServer array (incl. accessTypes)
+  string apd_url              = 9;  // APD that governs this item
+  string asset_name           = 10;
+  string short_description    = 11;
+}
+
+// ── Service ────────────────────────────────────────────────────────────────
+service AppIdVerificationService {
+  rpc VerifyAppId          (VerifyAppIdRequest)          returns (VerifyAppIdResponse);
+  rpc CheckItemAccess      (CheckItemAccessRequest)      returns (CheckItemAccessResponse);
+  rpc ResolveDelegation    (ResolveDelegationRequest)    returns (ResolveDelegationResponse);
+  rpc GetItem              (GetItemRequest)              returns (GetItemResponse);
+}

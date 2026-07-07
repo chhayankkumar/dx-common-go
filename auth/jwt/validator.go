@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,6 +18,10 @@ type Validator struct {
 // New creates a Validator. It connects to the JWKS endpoint immediately so
 // any configuration errors are surfaced at start-up.
 func New(cfg Config) (*Validator, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("jwt.New: %w", err)
+	}
+
 	jwks, err := NewKeycloakJWKS(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("jwt.New: %w", err)
@@ -27,6 +32,9 @@ func New(cfg Config) (*Validator, error) {
 	parserOpts := []gojwt.ParserOption{
 		gojwt.WithLeeway(leeway),
 		gojwt.WithIssuedAt(),
+		// Keycloak signs with RS256; pinning the algorithm prevents
+		// HS256/none algorithm-confusion attacks.
+		gojwt.WithValidMethods([]string{"RS256"}),
 	}
 	if cfg.Issuer != "" {
 		parserOpts = append(parserOpts, gojwt.WithIssuer(cfg.Issuer))
@@ -52,7 +60,7 @@ func (v *Validator) Validate(tokenString string) (*DxClaims, error) {
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
 	if !token.Valid {
-		return nil, fmt.Errorf("token is not valid")
+		return nil, errors.New("token is not valid")
 	}
 	return claims, nil
 }

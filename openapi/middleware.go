@@ -54,7 +54,7 @@ func ValidationMiddleware(loader *Loader, cfg Config) func(http.Handler) http.Ha
 			}
 
 			if err := openapi3filter.ValidateRequest(r.Context(), input); err != nil {
-				dxerrors.WriteError(w, dxerrors.NewValidation(err.Error()))
+				dxerrors.WriteError(w, dxerrors.NewValidation("request validation failed"))
 				return
 			}
 

@@ -1,0 +1,35 @@
+# golangci-lint configuration for dx-common-go (the shared foundation).
+# Run: golangci-lint run ./...
+# Recommended in CI for every dx Go service — gosec in particular continuously
+# flags the auth/crypto class of issues (e.g. the HMAC blank-id hardening).
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck      # unchecked errors (esp. on writes/close)
+    - gosec         # security: weak crypto, unhandled secrets, SQL building
+    - ineffassign
+    - unused
+    - misspell
+    - bodyclose     # leaked http.Response bodies
+    - rowserrcheck  # missing rows.Err() after pgx/sql iteration
+    - contextcheck  # context propagation
+
+linters-settings:
+  gosec:
+    excludes:
+      - G115  # integer overflow conversion — noisy on intentional int/int64 casts
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-rules:
+    # Test helpers frequently ignore errors deliberately.
+    - path: _test\.go
+      linters: [errcheck, gosec, bodyclose]
+  max-issues-per-linter: 0
+  max-same-issues: 0

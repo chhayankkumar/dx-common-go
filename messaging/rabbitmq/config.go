@@ -1,6 +1,10 @@
 package rabbitmq
 
-import "time"
+import (
+	"time"
+
+	"go.uber.org/zap"
+)
 
 // Config holds the settings for connecting to RabbitMQ.
 type Config struct {
@@ -9,4 +13,6 @@ type Config struct {
 	ReconnectDelay time.Duration `mapstructure:"reconnect_delay"`
 	Exchange       string        `mapstructure:"exchange"`
 	ExchangeType   string        `mapstructure:"exchange_type"` // direct, fanout, topic, headers
+	// Logger is used for connection and delivery lifecycle warnings. Optional.
+	Logger *zap.Logger `mapstructure:"-"`
 }

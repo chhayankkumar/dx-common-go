@@ -45,7 +45,7 @@ func TestStringValidation_Required(t *testing.T) {
 	}
 }
 
-func TestEmail Validation_Valid(t *testing.T) {
+func TestEmailValidation_Valid(t *testing.T) {
 	v := New()
 	v.Email("email", "test@example.com")
 
@@ -63,9 +63,9 @@ func TestEmailValidation_Invalid(t *testing.T) {
 	}
 }
 
-func TestUUID Validation_Valid(t *testing.T) {
+func TestUUIDValidation_Valid(t *testing.T) {
 	v := New()
-	v.UUID("id", "123e4567-e89b-12d3-a456-426614174000")
+	v.UUID("id", "123e4567-e89b-42d3-a456-426614174000")
 
 	if v.HasErrors() {
 		t.Fatalf("expected no errors, got %v", v.Errors())

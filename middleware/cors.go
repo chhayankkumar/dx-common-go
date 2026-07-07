@@ -45,6 +45,12 @@ func CORS(cfg CORSConfig) func(http.Handler) http.Handler {
 			}
 			if allowedOrigin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+				// When the response varies by the request Origin (i.e. we reflect a
+				// specific origin rather than "*"), advertise it so shared caches
+				// don't serve one origin's CORS headers to another.
+				if allowedOrigin != "*" {
+					w.Header().Add("Vary", "Origin")
+				}
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", allowedMethods)

@@ -5,8 +5,34 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// PgxPoolChecker checks PostgreSQL health via a pgx connection pool (the
+// driver the CDPG Go services use, as opposed to database/sql).
+type PgxPoolChecker struct {
+	pool *pgxpool.Pool
+}
+
+// NewPgxPoolChecker creates a health checker backed by a pgxpool.Pool.
+func NewPgxPoolChecker(pool *pgxpool.Pool) *PgxPoolChecker {
+	return &PgxPoolChecker{pool: pool}
+}
+
+// Check verifies PostgreSQL connectivity.
+func (pc *PgxPoolChecker) Check(ctx context.Context) ServiceStatus {
+	start := time.Now()
+	if err := pc.pool.Ping(ctx); err != nil {
+		return ServiceStatus{
+			Name:     "database",
+			Status:   "unhealthy",
+			Message:  "failed to connect: " + err.Error(),
+			Duration: time.Since(start),
+		}
+	}
+	return ServiceStatus{Name: "database", Status: "healthy", Duration: time.Since(start)}
+}
 
 // PostgreSQLChecker checks PostgreSQL database health
 type PostgreSQLChecker struct {
@@ -66,6 +92,84 @@ func (rc *RedisChecker) Check(ctx context.Context) ServiceStatus {
 		Status:   "healthy",
 		Duration: time.Since(start),
 	}
+}
+
+// rabbitConn is satisfied by both rabbitmq.Client and rabbitmq.ReliablePublisher.
+// Defined here (rather than importing messaging/rabbitmq) so health stays a
+// leaf package with no dependency on the messaging stack.
+type rabbitConn interface {
+	IsConnected() bool
+}
+
+// RabbitMQChecker checks RabbitMQ connection liveness.
+type RabbitMQChecker struct {
+	conn rabbitConn
+}
+
+// NewRabbitMQChecker creates a health checker backed by anything exposing
+// IsConnected() bool — e.g. *rabbitmq.Client or *rabbitmq.ReliablePublisher.
+func NewRabbitMQChecker(conn rabbitConn) *RabbitMQChecker {
+	return &RabbitMQChecker{conn: conn}
+}
+
+// Check reports unhealthy when the underlying connection/channel is closed.
+func (rc *RabbitMQChecker) Check(ctx context.Context) ServiceStatus {
+	start := time.Now()
+	if !rc.conn.IsConnected() {
+		return ServiceStatus{
+			Name:     "rabbitmq",
+			Status:   "unhealthy",
+			Message:  "not connected",
+			Duration: time.Since(start),
+		}
+	}
+	return ServiceStatus{Name: "rabbitmq", Status: "healthy", Duration: time.Since(start)}
+}
+
+// Pinger is anything that can verify its own reachability with a lightweight
+// call — e.g. *storage/s3.Client or *database/elasticsearch/client.Client, both
+// of which expose HealthCheck(ctx) error. Defined here (at the consumer) so
+// health need not import the storage/database packages.
+type Pinger interface {
+	HealthCheck(ctx context.Context) error
+}
+
+// PingChecker adapts any Pinger into a Checker. Use the named constructors
+// (NewObjectStoreChecker, NewElasticsearchChecker) or NewPingChecker directly.
+type PingChecker struct {
+	name   string
+	pinger Pinger
+}
+
+// NewPingChecker creates a checker for any Pinger under the given name.
+func NewPingChecker(name string, pinger Pinger) *PingChecker {
+	return &PingChecker{name: name, pinger: pinger}
+}
+
+// NewObjectStoreChecker checks an S3-compatible object store (e.g.
+// *storage/s3.Client). name labels the dependency (e.g. "s3" or "minio").
+func NewObjectStoreChecker(name string, store Pinger) *PingChecker {
+	return NewPingChecker(name, store)
+}
+
+// NewElasticsearchChecker checks an Elasticsearch cluster (e.g.
+// *database/elasticsearch/client.Client), labelled "elasticsearch".
+func NewElasticsearchChecker(es Pinger) *PingChecker {
+	return NewPingChecker("elasticsearch", es)
+}
+
+// Check reports unhealthy when the dependency's HealthCheck fails.
+func (pc *PingChecker) Check(ctx context.Context) ServiceStatus {
+	start := time.Now()
+	if err := pc.pinger.HealthCheck(ctx); err != nil {
+		return ServiceStatus{
+			Name:     pc.name,
+			Status:   "unhealthy",
+			Message:  err.Error(),
+			Duration: time.Since(start),
+		}
+	}
+	return ServiceStatus{Name: pc.name, Status: "healthy", Duration: time.Since(start)}
 }
 
 // CustomChecker is a simple checker with a custom check function

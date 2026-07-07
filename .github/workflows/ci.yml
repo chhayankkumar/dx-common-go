@@ -1,0 +1,60 @@
+# CI for dx-common-go — the shared foundation every dx Go service depends on.
+# Replicate this workflow in each service repo (dx-authz-go, dx-acl-go, …); they
+# all carry the same .golangci.yml so the fleet enforces one quality bar.
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test (race + coverage)
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # The examples/ module is a separate Go module (its own go.mod), so the
+  # parent build above never touches it. Compiling it here is what keeps the
+  # reference wiring in examples/minimal-service from rotting as the framework
+  # evolves — a breaking API change that isn't reflected in the template fails
+  # this job.
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Build + vet examples module
+        working-directory: examples
+        run: |
+          go build ./...
+          go vet ./...
