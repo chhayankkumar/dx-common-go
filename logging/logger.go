@@ -32,6 +32,12 @@ func New(cfg Config) (*zap.Logger, error) {
 		zcfg = zap.NewProductionConfig()
 	}
 	zcfg.Level = zap.NewAtomicLevelAt(parseLevel(cfg.Level))
+	// Matches the ISO8601 "time" convention already hand-built in the two
+	// services (dx-community-layer-go, dx-files-connect-api-go) that construct
+	// a level-aware logger themselves today, so adopting this package changes
+	// their log shape as little as possible.
+	zcfg.EncoderConfig.TimeKey = "time"
+	zcfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
 	logger, err := zcfg.Build()
 	if err != nil {
