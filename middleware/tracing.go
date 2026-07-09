@@ -3,6 +3,7 @@ package middleware
 import (
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -46,4 +47,27 @@ func Standard(logger *zap.Logger, timeout time.Duration, opts ...Option) func(ch
 		r.Use(chimw.Recoverer)
 		r.Use(chimw.Timeout(timeout))
 	}
+}
+
+// Gin is the gin equivalent of Standard, applying the same optional-tracing
+// stack via Wrap. Use r.Use(Gin(logger, timeout, opts...)...) on a gin.Engine.
+func Gin(logger *zap.Logger, timeout time.Duration, opts ...Option) []gin.HandlerFunc {
+	cfg := &standardConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	stack := make([]gin.HandlerFunc, 0, 7)
+	if cfg.tracing {
+		stack = append(stack, Wrap(otelhttp.NewMiddleware("http.server")))
+	}
+	stack = append(stack,
+		Wrap(RequestID()),
+		Wrap(chimw.RealIP),
+		Wrap(Logger(logger)),
+		Wrap(CORS(DefaultCORSConfig())),
+		Wrap(Compression()),
+		Wrap(chimw.Recoverer),
+		Wrap(chimw.Timeout(timeout)),
+	)
+	return stack
 }
