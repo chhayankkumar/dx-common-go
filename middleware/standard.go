@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
@@ -23,6 +24,21 @@ func StandardStack(logger *zap.Logger, timeout time.Duration) func(chi.Router) {
 		r.Use(Compression())
 		r.Use(chimw.Recoverer)
 		r.Use(chimw.Timeout(timeout))
+	}
+}
+
+// StandardGin is the gin equivalent of StandardStack, applying the same
+// RequestID → RealIP → Logger → CORS → Compression → Recoverer → Timeout
+// stack via Wrap. Use r.Use(StandardGin(logger, timeout)...) on a gin.Engine.
+func StandardGin(logger *zap.Logger, timeout time.Duration) []gin.HandlerFunc {
+	return []gin.HandlerFunc{
+		Wrap(RequestID()),
+		Wrap(chimw.RealIP),
+		Wrap(Logger(logger)),
+		Wrap(CORS(DefaultCORSConfig())),
+		Wrap(Compression()),
+		Wrap(chimw.Recoverer),
+		Wrap(chimw.Timeout(timeout)),
 	}
 }
 

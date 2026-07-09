@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 
 	dxerrors "github.com/datakaveri/dx-common-go/errors"
@@ -70,5 +71,35 @@ func ServeUI(r chi.Router, loader *Loader, cfg Config) {
 	r.Get(base+"/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, swaggerUIHTML)
+	})
+}
+
+// ServeUIGin is the gin equivalent of ServeUI, registering the same routes on
+// a gin.IRouter (e.g. a *gin.Engine or a route group).
+func ServeUIGin(r gin.IRouter, loader *Loader, cfg Config) {
+	base := cfg.SwaggerUIPath
+	if base == "" {
+		base = "/docs"
+	}
+
+	r.GET(fmt.Sprintf("%s/openapi.json", base), func(c *gin.Context) {
+		c.Header("Content-Type", "application/json")
+		if err := json.NewEncoder(c.Writer).Encode(loader.Doc()); err != nil {
+			dxerrors.WriteError(c.Writer, dxerrors.NewInternal("failed to encode spec"))
+		}
+	})
+
+	if !cfg.SwaggerUIEnabled {
+		return
+	}
+
+	r.GET(base, func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(c.Writer, swaggerUIHTML)
+	})
+
+	r.GET(base+"/", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(c.Writer, swaggerUIHTML)
 	})
 }
