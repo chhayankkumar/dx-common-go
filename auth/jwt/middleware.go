@@ -70,6 +70,11 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 				})
 			}
 
+			var dpopJkt string
+			if claims.Cnf != nil {
+				dpopJkt = claims.Cnf.Jkt
+			}
+
 			sub, _ := claims.GetSubject()
 			user := auth.DxUser{
 				ID:               sub,
@@ -80,6 +85,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 				OrganisationName: claims.OrganisationName,
 				DelegatorID:      claims.DelegatorID,
 				Scopes:           scopeEntries,
+				DpopJkt:          dpopJkt,
 			}
 
 			next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), user)))

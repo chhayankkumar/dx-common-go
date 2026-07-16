@@ -27,4 +27,8 @@ type DxUser struct {
 	DelegatorID string
 	// Scopes contains delegation scope entries from the token.
 	Scopes []DelegationScopeEntry
+	// DpopJkt is the access token's "cnf.jkt" claim (RFC 9449 §6.1) — the
+	// RFC 7638 thumbprint of the public key this token is bound to. Empty
+	// when the token isn't DPoP-bound.
+	DpopJkt string
 }
