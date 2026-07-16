@@ -37,7 +37,7 @@ require (
 	golang.org/x/time v0.12.0
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
-	gopkg.in/square/go-jose.v2 v2.6.0
+	gopkg.in/go-jose/go-jose.v2 v2.6.3
 )
 
 require (

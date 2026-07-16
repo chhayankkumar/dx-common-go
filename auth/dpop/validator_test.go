@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	jose "gopkg.in/square/go-jose.v2"
+	jose "gopkg.in/go-jose/go-jose.v2"
 
 	"github.com/datakaveri/dx-common-go/cache"
 )
