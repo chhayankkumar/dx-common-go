@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.3.2
+	github.com/auth0/go-jwt-middleware/v2 v2.3.1
 	github.com/aws/aws-sdk-go-v2 v1.30.1
 	github.com/aws/aws-sdk-go-v2/config v1.27.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.0

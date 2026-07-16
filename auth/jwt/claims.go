@@ -21,6 +21,16 @@ type DxClaims struct {
 	// Scope is the raw space-separated scope string from the token.
 	Scope             string                 `json:"scope,omitempty"`
 	DelegationScopes  []DelegationScopeClaim `json:"delegation_scopes,omitempty"`
+	// Cnf is the RFC 9449 confirmation claim binding this access token to a
+	// DPoP proof-of-possession key. Nil when the token isn't DPoP-bound.
+	Cnf *CnfClaim `json:"cnf,omitempty"`
+}
+
+// CnfClaim is the "cnf" confirmation claim (RFC 7800 / RFC 9449 §6.1).
+type CnfClaim struct {
+	// Jkt is the base64url-encoded SHA-256 thumbprint (RFC 7638) of the
+	// public key the token is bound to. Compare against dpop.Proof.JKT.
+	Jkt string `json:"jkt"`
 }
 
 // RealmAccess holds the list of realm-level roles.
