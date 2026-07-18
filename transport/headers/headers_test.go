@@ -81,7 +81,7 @@ func TestVerify_RejectsExpired(t *testing.T) {
 	// freshness (not the signature) is the failing condition.
 	old := time.Now().Add(-time.Hour).Unix()
 	h.Set(HdrSubjectIssuedAt, strconv.FormatInt(old, 10))
-	canonical := canonicalString(h.Get(HdrSubjectID), "", "", "", old)
+	canonical := canonicalString(h.Get(HdrSubjectID), "", "", "", "", "", old)
 	h.Set(HdrSubjectSig, hmacHex(cfg.Secret, canonical))
 	if _, err := Verify(h, cfg); err == nil {
 		t.Fatal("expected expiry failure")
@@ -93,13 +93,82 @@ func TestVerify_RejectsBlankSignedID(t *testing.T) {
 	// must still refuse it.
 	cfg := secret("k")
 	now := time.Now().Unix()
-	canonical := canonicalString("", "", "", "", now)
+	canonical := canonicalString("", "", "", "", "", "", now)
 	h := http.Header{}
 	h.Set(HdrSubjectID, "")
 	h.Set(HdrSubjectIssuedAt, strconv.FormatInt(now, 10))
 	h.Set(HdrSubjectSig, hmacHex(cfg.Secret, canonical))
 	if _, err := Verify(h, cfg); err == nil {
 		t.Fatal("expected rejection of validly-signed blank id")
+	}
+}
+
+func TestSignVerify_AgentRoundTrip(t *testing.T) {
+	cfg := secret("k1")
+	user := auth.DxUser{
+		ID:           "u-1",
+		AgentSubject: "agent-7a1b",
+		DelegationID: "dg-01",
+	}
+	h, err := Sign(user, cfg)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if h.Get(HdrAgentSubject) != "agent-7a1b" || h.Get(HdrDelegationID) != "dg-01" {
+		t.Fatalf("agent headers not minted: %v", h)
+	}
+	got, err := Verify(h, cfg)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if got.AgentSubject != user.AgentSubject || got.DelegationID != user.DelegationID {
+		t.Fatalf("agent roundtrip mismatch: %+v", got)
+	}
+	if !got.IsAgent() {
+		t.Fatal("IsAgent() = false for delegated user")
+	}
+}
+
+func TestVerify_RejectsInjectedAgentHeaders(t *testing.T) {
+	// A plain user signature must not verify once agent headers are bolted on.
+	cfg := secret("k1")
+	h, _ := Sign(auth.DxUser{ID: "u-1"}, cfg)
+	h.Set(HdrAgentSubject, "agent-evil")
+	if _, err := Verify(h, cfg); err == nil {
+		t.Fatal("expected signature failure after agent-header injection")
+	}
+}
+
+func TestVerify_RejectsStrippedAgentHeaders(t *testing.T) {
+	// Dropping the agent headers from a delegated signature must break it —
+	// otherwise an agent call could masquerade as a direct user call.
+	cfg := secret("k1")
+	h, _ := Sign(auth.DxUser{ID: "u-1", AgentSubject: "agent-7a1b", DelegationID: "dg-01"}, cfg)
+	h.Del(HdrAgentSubject)
+	h.Del(HdrDelegationID)
+	if _, err := Verify(h, cfg); err == nil {
+		t.Fatal("expected signature failure after agent-header stripping")
+	}
+}
+
+func TestSignVerify_LegacyCompatibility(t *testing.T) {
+	// A signature computed by pre-agent code (5-field canonical) must still
+	// verify: rebuilds are not atomic across the fleet.
+	cfg := secret("k1")
+	now := time.Now().Unix()
+	legacyCanonical := "u-1||||" + strconv.FormatInt(now, 10)
+	h := http.Header{}
+	h.Set(HdrSubjectID, "u-1")
+	h.Set(HdrSubjectIssuedAt, strconv.FormatInt(now, 10))
+	h.Set(HdrSubjectSig, hmacHex(cfg.Secret, legacyCanonical))
+	if _, err := Verify(h, cfg); err != nil {
+		t.Fatalf("legacy signature no longer verifies: %v", err)
+	}
+}
+
+func TestSign_RejectsSeparatorInAgentFields(t *testing.T) {
+	if _, err := Sign(auth.DxUser{ID: "u", AgentSubject: "a|b"}, secret("k")); err == nil {
+		t.Fatal("expected error for '|' in agent subject")
 	}
 }
 

@@ -19,8 +19,19 @@ type DxClaims struct {
 	OrganisationName  string           `json:"organisation_name"`
 	DelegatorID       string           `json:"did,omitempty"`
 	// Scope is the raw space-separated scope string from the token.
-	Scope             string                 `json:"scope,omitempty"`
-	DelegationScopes  []DelegationScopeClaim `json:"delegation_scopes,omitempty"`
+	Scope            string                 `json:"scope,omitempty"`
+	DelegationScopes []DelegationScopeClaim `json:"delegation_scopes,omitempty"`
+	// Act identifies the acting party on a delegated token (RFC 8693 §4.1).
+	// Present only on tokens minted via token exchange: sub stays the user,
+	// Act.Sub names the agent acting on their behalf.
+	Act *ActClaim `json:"act,omitempty"`
+	// DelegationID joins a delegated token to the grant that authorized it.
+	DelegationID string `json:"delegation_id,omitempty"`
+}
+
+// ActClaim is the RFC 8693 "act" (actor) claim on a delegated token.
+type ActClaim struct {
+	Sub string `json:"sub"`
 }
 
 // RealmAccess holds the list of realm-level roles.

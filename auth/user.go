@@ -27,4 +27,17 @@ type DxUser struct {
 	DelegatorID string
 	// Scopes contains delegation scope entries from the token.
 	Scopes []DelegationScopeEntry
+	// AgentSubject is populated when the request runs under a delegated token
+	// (RFC 8693 act claim): ID stays the human user, AgentSubject names the
+	// agent acting on their behalf.
+	AgentSubject string
+	// DelegationID references the delegation grant that authorized the
+	// delegated token. Empty on direct user requests.
+	DelegationID string
+}
+
+// IsAgent reports whether the request is being made by an agent acting on the
+// user's behalf rather than by the user directly.
+func (u DxUser) IsAgent() bool {
+	return u.AgentSubject != ""
 }
