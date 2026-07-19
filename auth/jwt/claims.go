@@ -44,7 +44,15 @@ type Roles struct {
 	Roles []string `json:"roles"`
 }
 
-// DelegationScopeClaim represents a single scope entry in a delegation token.
+// DelegationScopeClaim represents a single scope entry in a delegation token
+// (the AppID provider→consumer delegation feature — unrelated to the agent
+// plane's grant model).
+//
+// Expiry is carried through from the token as-is but is NOT enforced by
+// HasScopeForEntity or anywhere else in this codebase: callers that need an
+// expiry check must parse and compare it themselves. The authoritative
+// "is this still valid" answer for AppID delegations comes from the
+// controlplane gRPC (ResolveDelegation), not from this claim.
 type DelegationScopeClaim struct {
 	Scope    string `json:"scope"`
 	EntityID string `json:"entity_id"`
