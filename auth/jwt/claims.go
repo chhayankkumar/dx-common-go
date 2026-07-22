@@ -19,8 +19,19 @@ type DxClaims struct {
 	OrganisationName  string           `json:"organisation_name"`
 	DelegatorID       string           `json:"did,omitempty"`
 	// Scope is the raw space-separated scope string from the token.
-	Scope             string                 `json:"scope,omitempty"`
-	DelegationScopes  []DelegationScopeClaim `json:"delegation_scopes,omitempty"`
+	Scope            string                 `json:"scope,omitempty"`
+	DelegationScopes []DelegationScopeClaim `json:"delegation_scopes,omitempty"`
+	// Act identifies the acting party on a delegated token (RFC 8693 §4.1).
+	// Present only on tokens minted via token exchange: sub stays the user,
+	// Act.Sub names the agent acting on their behalf.
+	Act *ActClaim `json:"act,omitempty"`
+	// DelegationID joins a delegated token to the grant that authorized it.
+	DelegationID string `json:"delegation_id,omitempty"`
+}
+
+// ActClaim is the RFC 8693 "act" (actor) claim on a delegated token.
+type ActClaim struct {
+	Sub string `json:"sub"`
 }
 
 // RealmAccess holds the list of realm-level roles.
@@ -33,7 +44,15 @@ type Roles struct {
 	Roles []string `json:"roles"`
 }
 
-// DelegationScopeClaim represents a single scope entry in a delegation token.
+// DelegationScopeClaim represents a single scope entry in a delegation token
+// (the AppID provider→consumer delegation feature — unrelated to the agent
+// plane's grant model).
+//
+// Expiry is carried through from the token as-is but is NOT enforced by
+// HasScopeForEntity or anywhere else in this codebase: callers that need an
+// expiry check must parse and compare it themselves. The authoritative
+// "is this still valid" answer for AppID delegations comes from the
+// controlplane gRPC (ResolveDelegation), not from this claim.
 type DelegationScopeClaim struct {
 	Scope    string `json:"scope"`
 	EntityID string `json:"entity_id"`

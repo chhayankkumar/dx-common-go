@@ -15,10 +15,13 @@
 //	X-Subject-Org-Id      organisation the user belongs to
 //	X-Subject-Issued-At   Unix seconds when these headers were minted
 //	X-Subject-Sig         hex(HMAC-SHA256(canonical, shared_secret))
+//	X-Agent-Subject       acting agent (RFC 8693 act.sub) — delegated calls only
+//	X-Delegation-Id       delegation grant reference — delegated calls only
 //
 // The signature covers the canonical string:
 //
-//	id|email|roles|org|issued_at
+//	id|email|roles|org|issued_at                          (direct user call)
+//	id|email|roles|org|issued_at|agent_sub|delegation_id  (delegated agent call)
 //
 // Replay protection: Verify rejects anything older than MaxAge (default 60s).
 // Rotate the shared secret by accepting two keys during rollover.
@@ -48,6 +51,9 @@ const (
 	HdrSubjectOrgID    = "X-Subject-Org-Id"
 	HdrSubjectIssuedAt = "X-Subject-Issued-At"
 	HdrSubjectSig      = "X-Subject-Sig"
+	// Agent headers are minted only for delegated (agent-acting) requests.
+	HdrAgentSubject = "X-Agent-Subject"
+	HdrDelegationID = "X-Delegation-Id"
 )
 
 // DefaultMaxAge is the validity window applied when Config.MaxAge is zero.
@@ -83,12 +89,12 @@ func Sign(user auth.DxUser, cfg Config) (http.Header, error) {
 	}
 	// The canonical string is '|'-separated; a field containing '|' is rejected
 	// as defence-in-depth against any field-shifting ambiguity.
-	if containsSeparator(user.ID, user.Email, user.OrganisationID) || rolesContainSeparator(user.Roles) {
+	if containsSeparator(user.ID, user.Email, user.OrganisationID, user.AgentSubject, user.DelegationID) || rolesContainSeparator(user.Roles) {
 		return nil, errors.New("headers.Sign: subject fields must not contain '|'")
 	}
 	now := time.Now().Unix()
 	rolesJoined := joinRoles(user.Roles)
-	canonical := canonicalString(user.ID, user.Email, rolesJoined, user.OrganisationID, now)
+	canonical := canonicalString(user.ID, user.Email, rolesJoined, user.OrganisationID, user.AgentSubject, user.DelegationID, now)
 	sig := hmacHex(cfg.Secret, canonical)
 
 	h := http.Header{}
@@ -101,6 +107,12 @@ func Sign(user auth.DxUser, cfg Config) (http.Header, error) {
 	}
 	if user.OrganisationID != "" {
 		h.Set(HdrSubjectOrgID, user.OrganisationID)
+	}
+	if user.AgentSubject != "" {
+		h.Set(HdrAgentSubject, user.AgentSubject)
+	}
+	if user.DelegationID != "" {
+		h.Set(HdrDelegationID, user.DelegationID)
 	}
 	h.Set(HdrSubjectIssuedAt, strconv.FormatInt(now, 10))
 	h.Set(HdrSubjectSig, sig)
@@ -142,21 +154,23 @@ func Verify(h http.Header, cfg Config) (auth.DxUser, error) {
 	email := h.Get(HdrSubjectEmail)
 	roles := h.Get(HdrSubjectRoles)
 	org := h.Get(HdrSubjectOrgID)
+	agentSub := h.Get(HdrAgentSubject)
+	delegationID := h.Get(HdrDelegationID)
 	// Even a validly-signed blank id must not authenticate a principal.
 	if strings.TrimSpace(id) == "" {
 		return auth.DxUser{}, fmt.Errorf("%w: empty subject id", ErrInvalidSignature)
 	}
-	canonical := canonicalString(id, email, roles, org, issuedAt)
+	canonical := canonicalString(id, email, roles, org, agentSub, delegationID, issuedAt)
 
 	if !verifyAgainst(cfg.Secret, canonical, sig) {
 		for _, alt := range cfg.AdditionalSecrets {
 			if verifyAgainst(alt, canonical, sig) {
-				return makeUser(id, email, roles, org), nil
+				return makeUser(id, email, roles, org, agentSub, delegationID), nil
 			}
 		}
 		return auth.DxUser{}, ErrInvalidSignature
 	}
-	return makeUser(id, email, roles, org), nil
+	return makeUser(id, email, roles, org, agentSub, delegationID), nil
 }
 
 // Middleware verifies subject headers on inbound requests and injects the
@@ -180,8 +194,16 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 
 // --- internals --------------------------------------------------------------
 
-func canonicalString(id, email, roles, org string, issuedAt int64) string {
-	return strings.Join([]string{id, email, roles, org, strconv.FormatInt(issuedAt, 10)}, "|")
+// canonicalString builds the signed payload. The agent fields are appended
+// only when present so signatures over plain user requests stay byte-identical
+// to those minted before agent support existed — services rebuild at different
+// times and a rebuilt gateway must remain verifiable by an older upstream.
+func canonicalString(id, email, roles, org, agentSub, delegationID string, issuedAt int64) string {
+	fields := []string{id, email, roles, org, strconv.FormatInt(issuedAt, 10)}
+	if agentSub != "" || delegationID != "" {
+		fields = append(fields, agentSub, delegationID)
+	}
+	return strings.Join(fields, "|")
 }
 
 func joinRoles(roles []string) string {
@@ -238,11 +260,13 @@ func rolesContainSeparator(roles []string) bool {
 	return false
 }
 
-func makeUser(id, email, roles, org string) auth.DxUser {
+func makeUser(id, email, roles, org, agentSub, delegationID string) auth.DxUser {
 	return auth.DxUser{
 		ID:             id,
 		Email:          email,
 		Roles:          splitRoles(roles),
 		OrganisationID: org,
+		AgentSubject:   agentSub,
+		DelegationID:   delegationID,
 	}
 }
